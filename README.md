@@ -1,12 +1,79 @@
 # SnakeAI
 
-An educational Python project that will eventually explore Deep Q-Networks with
-PyTorch. **Milestone 1** built the playable, tested Snake game. **Milestone 2**
-adds a headless RL environment and a reproducible random-agent baseline. The
-random agent does not learn.
-**Milestone 3** added a PyTorch network and two educational demos.
-**Milestone 4** adds standard DQN training and held-out evaluation. The original
-game and the untrained educational demos remain available.
+SnakeAI is an educational reinforcement-learning project with a playable Snake
+game, a headless environment, and a Deep Q-Network built with PyTorch. A trained
+model can play through a Pygame interface that displays its action-value estimates.
+Game rules, rendering, model code, and training are separate so the same rules
+serve human play, automated tests, training, and inference.
+
+The initial CPU experiment trained one seed for 500 episodes. On 100 held-out
+games, greedy DQN averaged **34.81** food items versus **0.14** for a fresh random
+policy using the same environment seeds. Every episode still ended in collision.
+This is a single-training-seed result, not evidence of performance across multiple
+training runs. Per-episode data and configurations are tracked under `results/`.
+
+## Technology stack
+
+- Python 3.11+; verified locally with Python 3.12.1 on Windows.
+- Pygame for the game window and keyboard controls.
+- PyTorch for the 11 → 128 → 128 → 3 network, autograd, and Adam optimisation.
+- Matplotlib for training charts; pytest for automated tests.
+- Git and a private GitHub repository for source and experiment records.
+
+## Six-milestone roadmap
+
+| Milestone | Scope | Status |
+| --- | --- | --- |
+| 1 | Playable Snake and a separate testable game engine | Complete |
+| 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
+| 3 | PyTorch network and educational inference/optimisation examples | Complete |
+| 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
+| 5 | Agent inspection and further analysis | 5A visual playback complete; 5B/5C not implemented |
+| 6 | Portfolio presentation and project packaging | Planned; not implemented |
+
+The remaining roadmap is provisional. Collision diagnostics, algorithm changes,
+additional experiments, and portfolio features have not been completed.
+
+## Clone and install
+
+The repository is private, so cloning requires access and GitHub authentication.
+For a new checkout, run the following in PowerShell from your chosen parent folder:
+
+```powershell
+git clone https://github.com/Chaytou-141/snake-ai.git
+Set-Location snake-ai
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install 'torch==2.15.0' --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,training]'
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Installing from the CPU index first ensures that the editable install reuses the
+CPU PyTorch build. The `training` extra includes plotting dependencies; `dev`
+includes pytest. Human play alone needs only `pip install -e .`.
+
+**Cloning does not include trained weights.** Large generated `.pt`/`.pth`
+checkpoints are ignored to keep Git history focused on source and small useful
+experiment records. The verified model remains on the original machine at
+`results/milestone4_initial/checkpoints/final.pt`. It is not uploaded to GitHub,
+Git LFS, releases, or any other service. Playback on another machine requires an
+existing compatible local checkpoint or an explicitly chosen new training run.
+A new run may not reproduce the exact measured results. Its checkpoint path can
+be passed with `--checkpoint`; training never happens automatically at launch.
+
+Quick commands after setup:
+
+```powershell
+# Human play and automated tests work without the saved trained checkpoint.
+.\.venv\Scripts\python.exe -m snake_ai
+.\.venv\Scripts\python.exe -m pytest -q
+
+# Playback requires the existing local checkpoint at this path.
+.\.venv\Scripts\python.exe -m snake_ai.demos.trained_ai --checkpoint results/milestone4_initial/checkpoints/final.pt
+
+# Optional new bounded training run; do not overwrite recorded experiments.
+.\.venv\Scripts\python.exe -m snake_ai.training.train --config configs/dqn.json --output results/training_new
+```
 
 ## Setup on Windows
 
@@ -21,7 +88,7 @@ py -3.12 -m venv .venv
 ```
 
 The editable install includes Pygame; the `dev` extra includes pytest. PyTorch
-is needed only for Milestone 3; see its setup below. Using the interpreter
+is needed for the model, training, and trained playback; see setup above. Using the interpreter
 directly avoids PowerShell activation-policy issues. VS Code settings select
 `.venv` and enable pytest discovery. Install the
 Microsoft Python and Python Debugger extensions for editor testing and F5 launch.
@@ -115,6 +182,7 @@ snake-ai/
       __init__.py
       network.py
       optimisation.py
+      trained_ai.py
     agents/
       __init__.py
       dqn_agent.py
@@ -140,6 +208,7 @@ snake-ai/
     test_evaluation.py
     test_dqn.py
     test_training.py
+    test_trained_ai.py
   configs/
     dqn.json
   results/
@@ -163,8 +232,13 @@ tests and committed as `77d3151` (`feat: complete SnakeAI reinforcement learning
 before Milestone 3 work. Existing baseline and repeat results were preserved and
 verified identical. Milestone 3 was reverified with 110 passing tests and committed
 as `9a8e1e0ff49cc0e671126de9576edc5f1bf3daf0` with message
-`feat: complete SnakeAI PyTorch neural network`. Milestone 4 remains uncommitted
-for review. No push was made.
+`feat: complete SnakeAI PyTorch neural network`. Milestone 4 was reverified with
+146 passing tests, its checkpoint and recorded results were checked, and it was
+committed as `5067a307439d119ffdc78b563281e3d610fa84a0` with message
+`feat: implement and train SnakeAI DQN agent`. Milestone 5A is verified with
+173 passing tests and prepared for the Git checkpoint
+`feat: add trained SnakeAI playback visualisation`. Generated checkpoints remain
+local and ignored. The GitHub setup does not alter training or evaluation data.
 
 ## Milestone 2: headless environment
 
@@ -682,3 +756,117 @@ The implementation uses the standard concepts described in the
 with this project's existing environment, linear exploration schedule, and hard
 target synchronisation. Our measured results come from the saved local CSVs,
 not from the tutorial.
+
+## Milestone 5A: watch the trained agent
+
+Run from the project folder using the existing virtual environment:
+
+```powershell
+Set-Location 'C:\Users\ilach\Desktop\VSCODE\snake-ai'
+.\.venv\Scripts\python.exe -m snake_ai.demos.trained_ai
+
+# Explicit checkpoint, food seed, and speed
+.\.venv\Scripts\python.exe -m snake_ai.demos.trained_ai --checkpoint results/milestone4_initial/checkpoints/final.pt --seed 800000 --speed 10
+```
+
+The default checkpoint is `results/milestone4_initial/checkpoints/final.pt`.
+`--checkpoint` accepts another checkpoint saved by this project's DQN agent.
+The file must already exist locally; model files are deliberately ignored by
+Git. No retraining, downloading, or checkpoint creation happens when playback
+starts. The existing Pygame and PyTorch installation supplies all dependencies.
+
+### What is displayed
+
+The game area reuses the original Pygame renderer: grid, food, snake, brighter
+head, and score. A separate panel shows the checkpoint filename, playback state
+and speed, episode/seed, score, moves, current direction, latest reward, and total
+episode reward. The three Q-values are labelled **Straight**, **Right**, and
+**Left**, with the selected argmax highlighted.
+
+During play and pause, **NEXT ACTION Q-VALUES** describe the currently displayed
+board and the move the model will take next. They refresh after each successful
+environment step. At a win, collision, or truncation, the panel instead says
+**FINAL MOVE Q-VALUES** and **Values before final move**, retaining the values
+that selected the last executed action. No new action is executed after an
+episode ends. The final board, score, reward, and end reason remain visible.
+
+Q-values estimate future discounted reward under the learned policy. They are
+raw numerical estimates, not probabilities or a guarantee of success. The panel
+does not convert them to percentages or apply Softmax.
+
+### Controls
+
+| Key | Action |
+| --- | --- |
+| Space | Pause or resume; ended episodes remain stopped |
+| R | Retry the current episode using the same seed; resume playback |
+| N | Start the next episode with seed increased by one |
+| + | Increase playback speed by one move per second |
+| - | Decrease playback speed by one move per second |
+| Escape / window close | Exit |
+
+The main keyboard's `=` key also increases speed, making the usual Shift-plus
+key work. Numeric keypad plus/minus are supported. Speed defaults to 10 moves
+per second and is limited to 1–60; it changes timing only. Arrow keys do not
+steer the snake in AI playback. Pausing, retrying, or changing speed clears the
+movement timer so there is no accumulated burst of moves afterward.
+
+The initial seed defaults to 800000. **R** keeps the current episode number and
+seed, allowing a repeat of the same trajectory. **N** increases the episode
+number and seed, whether an episode is running or ended. Both reset score,
+reward, moves, and end flags while retaining playback speed. There is no
+automatic episode restart, giving time to inspect a failure.
+
+### Loading and environment compatibility
+
+`PlaybackSession` calls `DQNAgent.load()` for inference, which loads checkpoint
+tensors on CPU and strictly checks them against the model configuration. The
+demo uses `model.eval()`, disables parameter gradients, and runs each forward
+pass under `torch.inference_mode()`. It checks that the model accepts 11 features
+and returns three finite values. It then selects `argmax` directly, without
+using epsilon-greedy exploration or advancing training counters.
+
+The session creates `SnakeEnv` from the checkpoint's stored environment and
+reward configuration. It calls the existing `reset()` and `step()` methods;
+there is no second observation encoder, action conversion, or collision rule.
+Score, moves, rewards, and termination/truncation flags come from the environment.
+The CLI does not override board dimensions, rewards, or episode limits. A
+checkpoint with incompatible weight shapes or invalid outputs fails explicitly.
+The interface is designed primarily for the verified 20 by 20 checkpoint.
+
+The renderer gained only optional control-text and terminal-overlay arguments,
+whose defaults preserve its human-play display. Human play still launches with
+`.\.venv\Scripts\python.exe -m snake_ai` and retains its original controls.
+
+### Verification and limitations
+
+Milestone 5A validation: **27 focused tests passed; 173 full-suite tests passed**.
+The existing Pygame packaging deprecation is the only warning. Tests cover
+checkpoint loading and architecture, recorded environment settings, observation
+size, argmax and relative actions, inference mode and frozen weights, rewards,
+retry/new-episode behavior, pause, win/loss/truncation handling, speed limits,
+headless rendering, keyboard controls, and clean exit. Run them with:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_trained_ai.py -q
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The actual trained checkpoint was also run for 80 headless playback moves on
+seed 800000, collecting seven food items. Its rendered 940 by 700 frame was
+visually inspected, and weight equality and the checkpoint hash were checked.
+This was an automated headless rendering check, not a manual live-window
+keyboard play-through or a new performance evaluation.
+
+The saved model's architecture remains 11 → 128 → 128 → 3 with 18,435 parameters.
+Its SHA-256 remains
+`ac2ba41422d265ac4a0384126cfa42de7c6c7bd74f468bc703901af96cade726`.
+The existing trained checkpoints and all saved result files are preserved.
+
+The agent can still crash: its 11 features omit full body geometry and long-term
+traps, its value estimates are approximate, and its original training budget was
+limited. All 100 original held-out DQN episodes eventually collided despite
+improved scores. Watching playback does not improve the model, and pausing or
+changing speed does not change its decisions. A chosen seed on another library
+version may not give exactly identical predictions. No Milestone 5B/5C work,
+retraining, architecture changes, reward changes, or new dependencies are included.

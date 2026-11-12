@@ -563,3 +563,118 @@ warning is resolved; the existing Pygame packaging warning remains. No game rule
 rewards, or observations changed. The 11-feature partial observation, modest
 single-seed experiment, and approximation on resume remain limitations. We stop
 at Milestone 4; further training strategies require a later approved milestone.
+
+## Milestone 5A: watching the saved model make decisions
+
+### Training versus inference
+
+Training uses experiences, loss, backpropagation, and an optimiser to change
+weights. Inference uses the existing weights to calculate predictions. Watching
+the trained AI is inference only. `snake_ai/demos/trained_ai.py` never calls
+`remember()`, `train_step()`, or the optimiser. It saves no model files and does
+not change the earlier experiment's CSVs or summaries.
+
+`PlaybackSession` sets the model to evaluation mode with `model.eval()`, freezes
+its parameters, and uses `torch.inference_mode()` during forward passes. Eval
+mode controls training-specific behavior if layers such as dropout are present;
+our current Linear/ReLU network has no such layers. Inference mode disables
+gradient tracking and additional autograd bookkeeping. Neither command improves
+the learned policy: they tell PyTorch how to run predictions efficiently.
+
+### Loading a saved network
+
+The checkpoint at `results/milestone4_initial/checkpoints/final.pt` stores the
+trained weights along with configuration and training progress. The demo calls
+the existing `DQNAgent.load()` method, which reconstructs `DQNNetwork` and restores
+its tensors with `load_state_dict()`. Loading uses CPU mapping and the supported
+checkpoint format. Shapes must match: our verified saved model has 11 inputs,
+two hidden layers of 128 neurons, and three outputs, containing 18,435 numbers.
+
+The demo also creates `SnakeEnv` with the environment/reward settings recorded
+in the checkpoint. This matters because silently changing rewards, observation
+meaning, or action conventions could make the model's estimates misleading.
+The same 11-feature encoder and relative action conversion remain in use. The
+model file is not copied over or saved again during playback.
+
+### From observations to Q-values
+
+`env.reset(seed=800000)` supplies a real initial observation. On this installation,
+it is `[0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1]`: immediate moves are safe, the snake
+faces right, and food is rightward and below. `_refresh_decision()` converts it
+to a float32 CPU tensor and sends it through the saved network.
+
+The actual initial outputs are approximately `[3.5001304, 3.1838040, 3.2873244]`.
+Their positions mean Straight, Right, and Left, in that order. `argmax` chooses
+index 0 because 3.5001304 is the largest value. `PlaybackSession.step()` passes
+that integer directly to `env.step(0)`, so the environment applies its usual
+relative action rule: continue RIGHT for this example. After receiving the new
+observation, the session calculates the next decision.
+
+The running panel shows values for the currently displayed board, not stale
+values from the board before the last move. The highlighted action will execute
+on the next movement tick. Pausing keeps that board and decision visible. When
+an episode ends, the last executed decision is retained and labelled **FINAL
+MOVE Q-VALUES** and **Values before final move**. There is no valid next action
+in a finished episode, so we do not pretend those values describe another move.
+
+### Why Q-values are not probabilities
+
+A Q-value estimates cumulative discounted reward for taking an action and then
+following the policy. A probability lies between zero and one; action
+probabilities in a distribution sum to one. Our initial outputs are each above
+three and sum to more than nine. That is allowed for action values and clearly
+does not represent a probability distribution. Other observations can produce
+negative estimates, such as the value of moving into a wall.
+
+The demo displays the raw values, highlights the largest, and does not use
+Softmax or percentage bars. A larger estimate means the model currently expects
+more return from that action, not that it is guaranteed safe or has a particular
+probability of success. Greedy means choosing the largest estimate without
+random exploration; it does not mean the action is objectively optimal.
+
+### Controls and repeatable episodes
+
+Pygame receives keys and controls the timing; the model makes all movement
+decisions. Space toggles pause. Plus and minus change moves per second within
+1–60. Neither control changes an observation, reward, or model weight. Arrow
+keys do not steer the AI, keeping the displayed behavior attributable to the
+network rather than mixing in human decisions.
+
+R calls `reset()` using the current seed, keeping the episode number. Repeating
+the same initial conditions with this greedy policy reproduces the trajectory
+on the same installation. N starts the next episode with the next seed and
+increases the episode number. Both clear score, reward totals, move counts, and
+terminal flags. The interface waits after either termination or truncation so
+we can inspect the final result before choosing R or N.
+
+### Why a trained agent still makes mistakes
+
+The network estimates values from a compressed observation, not the complete
+board. Different body shapes can produce the same 11 features but require
+different long-term plans. Avoiding an immediate collision does not reveal a
+trap several moves away. The finite training sample and approximate bootstrap
+targets can also produce inaccurate estimates. Taking argmax cannot correct
+the information or estimation errors underneath those numbers.
+
+The model's original held-out scores improved over random, but every evaluated
+episode still ended in collision. Playback makes those successes and failures
+visible; it does not solve them. An 80-move headless playback check on seed
+800000 collected seven food items and rendered a readable preview, with model
+weights and checkpoint hash unchanged. This checks the interface, not a new
+claim about policy performance.
+
+### What was preserved and tested
+
+Before adding playback we verified all 146 Milestone 4 tests, the checkpoint's
+architecture/hash, and the saved training/evaluation metrics. Milestone 4 was
+committed as `5067a30`. The new 27 tests exercise temporary checkpoints and a
+headless Pygame display, including actual inference mode, no weight updates,
+all heading/action mappings, pause, retry, new episodes, speed controls, and
+natural versus truncated endings. All 173 project tests pass. Only the existing
+Pygame packaging deprecation remains.
+
+The original renderer accepts optional display labels and overlay control for
+reuse in the AI view; its default human-play rendering and controls remain the
+same. No training algorithm, model architecture, reward, saved checkpoint, or
+evaluation result changed. Milestone 5A stops at visual inference; further
+changes belong to a separately approved milestone.

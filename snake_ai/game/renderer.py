@@ -12,11 +12,13 @@ TEXT = (234, 240, 246)
 
 
 def draw(screen: pygame.Surface, game: SnakeGame,
-         font: pygame.font.Font, small_font: pygame.font.Font) -> None:
+         font: pygame.font.Font, small_font: pygame.font.Font, *,
+         controls_text: str = "Arrows: move   R: restart   Esc: exit",
+         show_terminal_overlay: bool = True) -> None:
     screen.fill(BACKGROUND)
     score_text = font.render(f"SnakeAI   |   Score: {game.score}", True, TEXT)
     screen.blit(score_text, (12, 8))
-    screen.blit(small_font.render("Arrows: move   R: restart   Esc: exit", True,
+    screen.blit(small_font.render(controls_text, True,
                                 (162, 177, 192)), (12, 38))
     for x in range(game.width + 1):
         pygame.draw.line(screen, (28, 36, 46), (x * CELL_SIZE, HEADER_HEIGHT),
@@ -35,7 +37,7 @@ def draw(screen: pygame.Surface, game: SnakeGame,
         cell(game.food, (255, 113, 107))
     for index, position in enumerate(game.snake):
         cell(position, (139, 244, 179) if index == 0 else (56, 185, 126))
-    if game.status is not GameStatus.RUNNING:
+    if show_terminal_overlay and game.status is not GameStatus.RUNNING:
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         overlay.fill((8, 12, 18, 215))
         screen.blit(overlay, (0, 0))
