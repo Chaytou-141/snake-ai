@@ -84,9 +84,7 @@ class SnakeGame:
         head_x, head_y = self.snake[0]
         next_head = (head_x + dx, head_y + dy)
         eating = next_head == self.food
-        body = self.snake if eating else self.snake[:-1]
-        x, y = next_head
-        if not (0 <= x < self.width and 0 <= y < self.height) or next_head in body:
+        if self.would_collide(self.direction):
             self.status = GameStatus.LOST
             return self.status
         self.snake.insert(0, next_head)
@@ -98,3 +96,16 @@ class SnakeGame:
         else:
             self.snake.pop()
         return self.status
+
+    def would_collide(self, direction: Direction) -> bool:
+        """Predict a move's collision without mutating state or consuming RNG.
+
+        The supplied absolute direction is checked directly. Callers choose a
+        legal direction first; step() still handles reverse-action prevention.
+        """
+        dx, dy = direction.value
+        x, y = self.snake[0]
+        target = (x + dx, y + dy)
+        body = self.snake if target == self.food else self.snake[:-1]
+        return (not (0 <= target[0] < self.width and 0 <= target[1] < self.height)
+                or target in body)

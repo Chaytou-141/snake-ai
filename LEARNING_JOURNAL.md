@@ -87,3 +87,110 @@ window; they cannot prove that a real display and keyboard feel correct.
 Milestone 1 stops at a playable game. Later, an adapter can turn game state into
 observations and agent decisions into directions. Rewards and neural networks
 will be separate additions, leaving the tested movement rules in place.
+
+## Milestone 2: reinforcement learning
+
+Reinforcement learning means learning to choose actions through interaction and
+feedback. An agent tries an action, the environment advances, and a reward tells
+the agent something about the result. Milestone 2 builds this interaction but
+does not learn: `RandomAgent` always samples actions randomly, without updating
+any knowledge. PyTorch and DQN still belong to a future milestone.
+
+### Agent and environment
+
+`RandomAgent.act()` chooses a number using its own seeded random generator.
+`SnakeEnv.step()` receives the number, converts it to a direction, and asks the
+existing `SnakeGame` to move. The environment also tracks episode limits and
+rewards. The agent makes decisions; the environment applies rules. Neither
+needs to open a Pygame window.
+
+### State and observation
+
+State is everything that describes the game: body coordinates, food, direction,
+score, and status, plus the wrapper's episode counters. An observation is the
+information we give the agent. `SnakeEnv.observation()` turns part of the state
+into 11 binary float32 numbers in a standard-library `array('f')`.
+
+The order is danger straight/right/left, moving up/down/left/right, and food
+left/right/above/below. A 1 means true and a 0 means false. A snake moving right
+with food above and to the right on an otherwise safe next move sees
+`[0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0]`. `FEATURE_NAMES` records this exact order.
+
+`SnakeGame.would_collide()` predicts immediate danger using the same rules as
+`SnakeGame.step()`. A departing tail is safe to enter. Sharing this method
+prevents the observation and the actual game from disagreeing about that rule.
+
+### Action space
+
+An action space is the set of allowed decisions. Our action space is three
+integers: 0 continues straight, 1 turns right, and 2 turns left. These actions
+are relative to the head, rather than fixed screen directions. For example,
+`relative_direction(Direction.RIGHT, 1)` is `Direction.DOWN`; when facing up,
+the same right-turn action means `Direction.RIGHT`. Reversing is impossible.
+Invalid actions raise an error instead of silently choosing a different move.
+
+### Reward functions
+
+A reward is a number describing one step's outcome. `RewardConfig` starts with
++10 for food, -10 for collision, 0 for normal movement, and +10 for winning.
+The final meal pays only the win reward, not both rewards. These numbers are
+design choices that may need experiments later, not facts about the best way
+to train. A high reward does not change the displayed food score: the score
+still counts meals, one point each.
+
+### Episodes, termination, and truncation
+
+An episode starts with `env.reset()` and ends at a game outcome or time limit.
+Termination means a natural outcome: collision or a filled board. Truncation
+means we stopped a still-running game because a chosen budget was exhausted.
+`SnakeEnv.step()` returns these as separate booleans.
+
+The default total budget is 10,000 moves. Starvation allows at most
+`max(400, 100 * len(env.game.snake))` consecutive moves without food. Initially,
+length 3 gives 400. Eating sets `steps_since_food` to zero. With length 5, the
+allowance is 500. An endless circle therefore ends even if it avoids collisions.
+Truncation does not invent a collision penalty. A collision on the very last
+allowed move remains a natural termination, and a win remains a win.
+
+The environment reports `end_reason` and counters in the `info` dictionary.
+For a truncated episode the underlying game can still be `running`, but the
+wrapper requires a reset. A future learner must decide how to handle value
+estimates at a time limit; treating every truncation as death can distort them.
+
+### Random policies and baselines
+
+A policy is a rule for choosing actions. `RandomAgent` is a uniform random
+policy: each action has probability one third, even if it is dangerous.
+It ignores observations and never improves. Two agents with the same seed
+produce the same action sequence; the environment's separate seed determines
+the food sequence. `evaluate()` uses documented seed pairs for each episode.
+
+A baseline gives future learning results a comparison. The measured 100-episode
+run averaged 0.14 meals and 66.49 moves; every episode ended in collision.
+This is an initial sample, not a precise estimate for every possible random
+run. `results/random_baseline.csv` records each episode, and the adjacent JSON
+stores the seeds, settings, and summary so a claim can be checked. Repeating
+the experiment matched all rows. The evaluator refuses to overwrite experiments.
+
+### Limits of these 11 features
+
+The features do not show the entire snake, distance to food or walls, free
+space, or remaining episode budgets. Two different boards can produce identical
+observations even though the best action differs. This is partial observation:
+the input is not a complete Markov state, which would contain enough information
+to predict the next-state distribution from an action. Immediate safety also
+does not guarantee that a move avoids a trap several steps later. A future DQN
+cannot recover information we never give it simply by being a bigger network.
+
+### What the tests teach us
+
+`test_environment.py` checks all direction/action conversions, exact observation
+order, and predicted danger against actual engine moves. Small, controlled
+boards test rewards, wins, starvation, and step caps. `test_evaluation.py` checks
+seeded action sequences, metrics, CSV/JSON output, and overwrite protection.
+A subprocess runs evaluation and verifies that it imports neither Pygame nor
+ML libraries. All 33 Milestone 1 tests still pass, helping preserve human play.
+
+Milestone 2 stops here. Before training, we still need choices about observations,
+rewards, tensor inputs, and time-limit handling, followed by the actual network
+and learning machinery in later milestones.

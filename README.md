@@ -1,8 +1,9 @@
 # SnakeAI
 
 An educational Python project that will eventually explore Deep Q-Networks with
-PyTorch. **Milestone 1** builds only the playable, tested Snake game. There is no
-agent, training algorithm, or neural network in this milestone.
+PyTorch. **Milestone 1** built the playable, tested Snake game. **Milestone 2**
+adds a headless RL environment and a reproducible random-agent baseline. The
+random agent does not learn. No neural network or training algorithm is included.
 
 ## Setup on Windows
 
@@ -92,7 +93,8 @@ These automated checks do not replace a manual display and keyboard play-through
 
 Validation on 12 November 2026 with Python 3.12, Pygame 2.6.1, and pytest 9.2.0:
 focused rule checks **7 passed, 21 deselected**; complete suite **33 passed**.
-The interactive game has not been manually played or visually inspected.
+Codex did not manually play or inspect the game; the user subsequently reported
+manually playing Milestone 1.
 
 ## Project structure
 
@@ -101,13 +103,23 @@ snake-ai/
   snake_ai/
     __init__.py
     __main__.py
+    evaluate.py
     game/
       __init__.py
       engine.py
       renderer.py
+    rl/
+      __init__.py
+      environment.py
+      random_agent.py
   tests/
     test_engine.py
     test_renderer.py
+    test_environment.py
+    test_evaluation.py
+  results/
+    random_baseline.csv
+    random_baseline.json
   .vscode/
     settings.json
     launch.json
@@ -119,14 +131,170 @@ snake-ai/
 
 `.venv/` and generated installation/test caches are local, ignored artifacts.
 Dependencies have version ranges rather than a fully pinned lock file. This
-project has no Git repository initialized automatically; no commit or push is
-part of the setup.
+Milestone 1 was verified with 33 passing tests and checkpointed in Git as
+`cee2d5a` before Milestone 2 edits. The new Milestone 2 implementation remains
+uncommitted for review. No remote or push has been configured by this work.
 
-## Later milestones
+## Milestone 2: headless environment
 
-A future adapter can translate agent outputs to `Direction`, read observations
-from engine state, calculate rewards, and use terminal status to end episodes.
-The same `step()` and `reset()` rules will serve both human play and training.
-Observation encoding, rewards, replay memory, DQN, and PyTorch are deliberately
-left for later milestones. State attributes are exposed for learning and reading;
-callers should use `step()` and `reset()` to keep normal gameplay consistent.
+`SnakeEnv` wraps the existing engine using a Gymnasium-style interface, without
+adding Gymnasium, NumPy, PyTorch, or importing Pygame. The renderer and human-play
+entry point are unchanged. The engine now exposes `would_collide(direction)`,
+also used by `step()`, so danger features use exactly the gameplay collision rules.
+
+```python
+from snake_ai.rl import SnakeEnv, RandomAgent
+
+env = SnakeEnv()
+agent = RandomAgent(seed=10000)
+observation, info = env.reset(seed=42)
+while True:
+    observation, reward, terminated, truncated, info = env.step(agent.act())
+    if terminated or truncated:
+        print(info)
+        break
+```
+
+Call `reset()` before the first action and after every completed episode.
+`reset(seed=42)` restarts the food RNG sequence; `reset()` continues its stream.
+Reset also clears episode counters and end reason. The agent has a separate RNG:
+`agent.reset(seed=10000)` restarts its action sequence; `agent.reset()` preserves
+it. Supplying both seeds and the same configurations reproduces an episode.
+
+`step(action)` returns `(observation, reward, terminated, truncated, info)`.
+Metadata includes `score`, `steps` (including a fatal move), `steps_since_food`,
+`starvation_limit`, `game_status`, and `end_reason`. An invalid action raises
+`ValueError` without mutation. Stepping before reset or after episode completion
+raises `RuntimeError`. The underlying engine still has its original terminal
+no-op behavior. Avoid manipulating `env.game` during real episodes; tests do so
+only to arrange controlled scenarios.
+
+### Observation features
+
+Each observation is a fresh standard-library `array('f')`: 11 float32 values,
+each 0.0 or 1.0. This avoids a numerical-library dependency and can later be
+converted to a PyTorch tensor. The exact zero-based order is:
+
+| Index | Feature |
+| --- | --- |
+| 0 | Danger straight |
+| 1 | Danger right |
+| 2 | Danger left |
+| 3 | Moving up |
+| 4 | Moving down |
+| 5 | Moving left |
+| 6 | Moving right |
+| 7 | Food left |
+| 8 | Food right |
+| 9 | Food above |
+| 10 | Food below |
+
+For `env.reset(seed=42)` on the default board, food is at `(10, 16)` and the
+actual observation is `[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]`: safe immediate
+moves, heading right, and food directly below.
+
+Danger means the next move would hit a wall or body, accounting for the departing
+tail. It does not predict starvation or future traps. Food comparisons use the
+head coordinates, not the current direction. Diagonal food activates two flags;
+food in the same row or column activates neither flag on that axis. When food is
+`None` after a win, all food flags are zero. Terminal observations describe the
+final valid board, even though no further actions may be taken.
+
+### Actions
+
+| Action | Meaning | Example when moving RIGHT |
+| --- | --- | --- |
+| 0 | Straight | RIGHT |
+| 1 | Turn right (clockwise) | DOWN |
+| 2 | Turn left (counterclockwise) | UP |
+
+`relative_direction()` implements the conversion for all headings. Accept only
+Python integers 0, 1, 2; booleans, floats, strings, and one-hot lists are rejected.
+No action allows an immediate reversal.
+
+### Rewards and episode boundaries
+
+`RewardConfig(food=10, collision=-10, movement=0, win=10)` contains the initial
+experimental rewards. Pass another `RewardConfig` to `SnakeEnv(rewards=...)`
+to change them. Winning replaces the food reward on the final meal, so the
+default winning step earns +10 total rather than +20.
+
+`EnvConfig()` defaults to 20 by 20 cells, `max_steps=10000`,
+`starvation_min_steps=400`, and `starvation_factor=100`. The starvation allowance
+is deterministically `max(starvation_min_steps, starvation_factor * current_length)`.
+The default therefore allows 400 moves without food for the initial length 3.
+Eating resets the no-food counter to zero and updates the allowance using the
+new body length. All limits must be positive integers.
+
+Colliding or filling the grid gives `terminated=True` and `truncated=False`.
+Otherwise reaching either the total step cap or the starvation allowance gives
+`terminated=False` and `truncated=True`. Reaching a limit means `>=`, not `>`.
+Terminal outcomes take precedence over limits; if both limits are reached on a
+nonterminal step, the reason is `max_steps`. Truncation keeps the reward earned
+on that step (normally 0, or +10 if food was eaten at the total step cap). It
+does not apply the collision penalty. A truncated engine may still say
+`game_status='running'`; the wrapper, not the engine, owns episode limits.
+
+### Run and reproduce the random baseline
+
+```powershell
+# The supplied baseline files already exist; use a new filename for a rerun.
+.\.venv\Scripts\python.exe -m snake_ai.evaluate --episodes 100 --seed-start 0 --agent-seed-start 10000 --output results/random_baseline_repeat.csv
+
+# Focused tests and then all tests
+.\.venv\Scripts\python.exe -m pytest tests/test_environment.py tests/test_evaluation.py -q
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The evaluator uses environment seeds **0 through 99** and independent action
+seeds **10000 through 10099**, reseeding both for each episode. `RandomAgent.act()`
+samples uniformly from all three actions, including unsafe ones; it never uses
+the observation. CLI options also expose the three limits; use `--help` for
+details. Board size and rewards can be configured through the Python API.
+
+The CSV stores one row per episode with both seeds, score, steps, total reward,
+termination/truncation flags, and reason. The companion JSON stores exact seed
+lists, environment configuration, rewards, Python version, policy description,
+and aggregate results. Existing files are refused rather than overwritten.
+
+Actual run on 12 November 2026, Python 3.12.1, default configuration:
+
+| Metric | Measured result |
+| --- | --- |
+| Episodes | 100 |
+| Average score | 0.14 |
+| Median score | 0 |
+| Maximum score | 2 |
+| Minimum score | 0 |
+| Average episode length | 66.49 moves |
+| Collision rate | 100% |
+| Truncation rate | 0% |
+| Win rate | 0% |
+
+A second run matched all 100 episode rows and the JSON manifest. These are an
+initial baseline, not a definitive performance estimate. No observed truncations
+or wins in this sample does not imply either is impossible.
+
+Milestone 2 validation: **55 focused tests passed; 88 total tests passed**, including
+the original 33. Coverage includes every heading/action conversion, observation
+order and values, body/wall/tail danger parity with actual engine moves, food
+flags, configurable rewards, winning, both truncation limits, boundary priority,
+reset, reproducibility, saved results, and headless imports.
+
+## Known limitations and later milestones
+
+The 11 features omit body layout, distances, absolute position, and episode
+counters. Different boards can look identical to the agent and require different
+plans; the observation is not a complete Markov state. Immediate danger does not
+expose future traps. Hiding the no-food counter also hides proximity to truncation.
+The initial rewards and limits are experimental, not tuned settings. Tests use
+tiny boards for rare wins; the random baseline provides no evidence of winning
+on 20 by 20. Dependencies use version ranges; exact reproducibility across Python
+versions is not guaranteed. The wrapper is Gymnasium-style, not a full Gymnasium
+environment with spaces or registration.
+
+Before DQN, decide whether to retain this observation and reward scheme, define
+tensor encoding and truncation bootstrapping, then add PyTorch, a Q-network,
+replay memory, target updates, exploration, training, checkpointing, and separate
+evaluation seeds in later milestones. None is implemented here. The same tested
+engine rules will continue to serve both human play and future training.
