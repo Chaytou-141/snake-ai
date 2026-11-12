@@ -3,7 +3,9 @@
 An educational Python project that will eventually explore Deep Q-Networks with
 PyTorch. **Milestone 1** built the playable, tested Snake game. **Milestone 2**
 adds a headless RL environment and a reproducible random-agent baseline. The
-random agent does not learn. No neural network or training algorithm is included.
+random agent does not learn.
+**Milestone 3** now adds an untrained PyTorch network and two educational demos.
+There is still no DQN algorithm or reinforcement-learning training.
 
 ## Setup on Windows
 
@@ -17,9 +19,10 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e '.[dev]'
 ```
 
-The editable install includes Pygame; the `dev` extra includes pytest. No PyTorch
-is needed. Using the interpreter directly avoids PowerShell activation-policy
-issues. VS Code settings select `.venv` and enable pytest discovery. Install the
+The editable install includes Pygame; the `dev` extra includes pytest. PyTorch
+is needed only for Milestone 3; see its setup below. Using the interpreter
+directly avoids PowerShell activation-policy issues. VS Code settings select
+`.venv` and enable pytest discovery. Install the
 Microsoft Python and Python Debugger extensions for editor testing and F5 launch.
 If VS Code retains another interpreter, use **Python: Select Interpreter** and
 choose `.venv\Scripts\python.exe`.
@@ -104,6 +107,13 @@ snake-ai/
     __init__.py
     __main__.py
     evaluate.py
+    models/
+      __init__.py
+      dqn.py
+    demos/
+      __init__.py
+      network.py
+      optimisation.py
     game/
       __init__.py
       engine.py
@@ -117,6 +127,7 @@ snake-ai/
     test_renderer.py
     test_environment.py
     test_evaluation.py
+    test_dqn.py
   results/
     random_baseline.csv
     random_baseline.json
@@ -130,10 +141,13 @@ snake-ai/
 ```
 
 `.venv/` and generated installation/test caches are local, ignored artifacts.
-Dependencies have version ranges rather than a fully pinned lock file. This
+PyTorch is version-pinned; other dependencies have ranges rather than a fully
+pinned lock file.
 Milestone 1 was verified with 33 passing tests and checkpointed in Git as
-`cee2d5a` before Milestone 2 edits. The new Milestone 2 implementation remains
-uncommitted for review. No remote or push has been configured by this work.
+`cee2d5a` before Milestone 2 edits. Milestone 2 was reverified with 88 passing
+tests and committed as `77d3151` (`feat: complete SnakeAI reinforcement learning environment`)
+before Milestone 3 work. Existing baseline and repeat results were preserved and
+verified identical. Milestone 3 remains uncommitted for review. No push was made.
 
 ## Milestone 2: headless environment
 
@@ -293,8 +307,147 @@ on 20 by 20. Dependencies use version ranges; exact reproducibility across Pytho
 versions is not guaranteed. The wrapper is Gymnasium-style, not a full Gymnasium
 environment with spaces or registration.
 
-Before DQN, decide whether to retain this observation and reward scheme, define
-tensor encoding and truncation bootstrapping, then add PyTorch, a Q-network,
-replay memory, target updates, exploration, training, checkpointing, and separate
-evaluation seeds in later milestones. None is implemented here. The same tested
-engine rules will continue to serve both human play and future training.
+The same tested engine rules continue to serve human play and headless clients.
+Milestone 3 supplies tensor conversion and a network; the learning algorithm
+remains future work as described below.
+
+## Milestone 3: neural-network development
+
+### CPU-only PyTorch setup
+
+Use the existing Python 3.12 virtual environment. Install PyTorch from the
+[official CPU wheel index](https://download.pytorch.org/whl/cpu), following
+[PyTorch's installation guidance](https://pytorch.org/get-started/locally/):
+
+```powershell
+Set-Location 'C:\Users\ilach\Desktop\VSCODE\snake-ai'
+.\.venv\Scripts\python.exe -m pip install 'torch==2.15.0' --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,ml]'
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+```
+
+Verified locally: Python **3.12.1**, PyTorch **2.15.0+cpu**, CUDA build **None**.
+`pyproject.toml` pins the public PyTorch version in the optional `ml` extra.
+The CPU index selects the `+cpu` build; install it first as shown so the later
+editable install reuses it. No CUDA, torchvision, torchaudio, or unrelated ML
+libraries were installed. PyTorch's own required dependencies are installed
+automatically. The game and random baseline still work without importing torch.
+
+### Architecture and parameter count
+
+`snake_ai/models/dqn.py` defines `DQNNetwork(nn.Module)`:
+
+```text
+11 observations -> Linear(11, 128) -> ReLU
+                -> Linear(128, 128) -> ReLU
+                -> Linear(128, 3) -> raw Q-values
+```
+
+`input_dim`, `hidden_size`, and `output_dim` are configurable, defaulting to 11,
+128, and 3. Use float32 CPU tensors shaped `(11,)` for one observation or
+`(batch_size, 11)` for a batch. Outputs have shape `(3,)` or `(batch_size, 3)`.
+Invalid dimensions and non-floating inputs get clear errors; callers control
+dtype/device conversion. Model inputs must match the model's dtype and device.
+
+A Linear layer with n inputs and m outputs has `n * m` weights plus `m` biases.
+`parameter_counts()` counts actual trainable tensors using `numel()`, rather
+than hardcoding the architecture's expected total:
+
+| Layer | Calculation | Actual trainable parameters |
+| --- | --- | --- |
+| Input to hidden 1 | 11 × 128 + 128 | 1,536 |
+| Hidden 1 to hidden 2 | 128 × 128 + 128 | 16,512 |
+| Hidden 2 to output | 128 × 3 + 3 | 387 |
+| Total | Sum of layer counts | **18,435** |
+
+The output has no Softmax. Future Q-values will estimate discounted future
+reward for each action; they can be negative, exceed one, and need not sum to
+one. Softmax would constrain them to probabilities and change their meaning.
+The current untrained numbers have no learned reward interpretation.
+
+### Untrained model demonstration
+
+```powershell
+.\.venv\Scripts\python.exe -m snake_ai.demos.network
+```
+
+`run_demo()` resets `SnakeEnv` with environment seed 42 and creates a network
+with PyTorch seed 7. It converts the observation with `torch.tensor(...,
+dtype=torch.float32)`, uses `model.eval()` and `torch.no_grad()` for inference,
+selects the largest raw output with `argmax`, and sends that one action to the
+environment. It prints both observations, outputs, selected action, reward,
+termination flags, metadata, and parameter counts. It opens no window.
+
+Actual output on this installation (rounded):
+
+```text
+Observation: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]
+Q-values: [-0.0073753223, -0.1270019710, -0.0337755084]
+Selected action: 0 (straight), absolute direction RIGHT
+Reward: 0; terminated: false; truncated: false; game status: running
+```
+
+This is an **untrained network demonstration**. The choice comes from random
+initial weights and is not evidence of intelligent or learned play. Argmax
+simply selects the largest number, even if all three are negative.
+
+### One educational optimisation step
+
+```powershell
+.\.venv\Scripts\python.exe -m snake_ai.demos.optimisation
+```
+
+This independent example uses three fixed observation-like rows and three
+invented target triples. Targets are arbitrary teaching numbers, not rewards,
+Bellman targets, or claims about good actions. It creates a fresh seeded model,
+performs a forward pass, computes mean squared error, clears gradients, calls
+`backward()`, and runs **one** SGD step at learning rate **0.001**. A new forward
+pass measures the updated loss on the same batch. It saves no model or files.
+
+Actual results:
+
+| Quantity | Measured value |
+| --- | --- |
+| Loss before | 0.5388405919 |
+| Loss after | 0.5384227037 |
+| Gradient L2 norm | 0.6465501032 |
+| Parameter tensors changed | 6 |
+| Optimiser steps | 1 |
+
+The loss decreased for this example. One optimiser step does **not** guarantee a
+lower loss for every configuration, and lower error on these invented targets
+does not mean better Snake play. Both demos reseed PyTorch's global RNG when
+called; the model constructor itself does not set seeds.
+
+### Verification and limitations
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_dqn.py -q
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pip check
+```
+
+On 12 November 2026: **22 focused tests passed**; **110 full-suite tests passed**,
+including all 88 earlier tests. Dependency checks passed. Tests verify single
+and batch shapes, finite outputs, input validation, configurable architecture,
+raw unrestricted output values, parameter counts, finite nonzero gradients,
+changed weights, same-seed initialisation/predictions, actual environment input,
+repeatable demos, and headless execution. No graphical manual play-through was
+performed by Codex for this milestone.
+
+There is one focused-test warning and two full-suite warnings from dependencies:
+PyTorch cannot initialise its optional NumPy bridge because NumPy is not installed;
+Pygame also reports deprecated `pkg_resources` use after its dependency update.
+Tensor operations and both demos work without NumPy; no warning is suppressed.
+The pure game/environment tests do not import torch. Running the model tests
+requires the `ml` extra. Seeds reproduce results on this same installation, but
+identical values across versions, devices, or platforms are not guaranteed.
+
+## Before Milestone 4
+
+The network has never learned to play Snake. Before approved DQN work, revisit
+the partial observation and reward choices, specify handling of truncations in
+learning targets, then implement the learning algorithm, replay memory,
+exploration, target network, training/checkpoint workflow, and evaluation on
+separate seeds. None of that machinery is part of Milestone 3. Existing random
+baseline files remain unchanged and no new performance comparison is claimed.

@@ -194,3 +194,178 @@ ML libraries. All 33 Milestone 1 tests still pass, helping preserve human play.
 Milestone 2 stops here. Before training, we still need choices about observations,
 rewards, tensor inputs, and time-limit handling, followed by the actual network
 and learning machinery in later milestones.
+
+## Milestone 3: understanding the neural network
+
+We now have `DQNNetwork` in `snake_ai/models/dqn.py`. Its name describes its
+future role: predicting action values for DQN. It is only a neural-network
+building block today. No Snake training algorithm has been implemented.
+
+### Neurons: a weighted calculation
+
+A neuron combines input numbers with weights and a bias. For inputs x1 and x2,
+its basic calculation is `z = w1*x1 + w2*x2 + b`. With inputs 1 and 0, weights
+0.4 and -0.2, and bias 0.1, the result is 0.5. With 11 inputs it sums 11 weighted
+terms instead. This is an arithmetic unit, not a simulation of a biological brain.
+
+In SnakeAI, the first layer receives the 11 danger, heading, and food flags. One
+neuron has a separate weight for each flag and its own bias. The bias shifts the
+result even when every input is zero. `nn.Linear(11, 128)` computes 128 such
+weighted sums at once. PyTorch stores the weights as a matrix with 128 rows and
+11 columns, and the biases as a vector of length 128.
+
+### Weights: adjustable numerical parameters
+
+Weights and biases are model parameters. They begin with random initial values;
+`torch.manual_seed(7)` makes initialisation repeatable on our installation.
+Learning adjusts the parameters using data and a loss. A weight's magnitude
+affects how strongly an input contributes, but one weight alone generally does
+not explain the whole decision because later layers combine many activations.
+
+`DQNNetwork.parameter_counts()` uses `parameter.numel()` to count stored numbers.
+The first layer has `11*128 + 128 = 1536`. The second has
+`128*128 + 128 = 16512`. The last has `128*3 + 3 = 387`. The measured total is
+18,435 trainable parameters. ReLU has no trainable weights of its own.
+
+### Layers: moving from observations to action values
+
+The input is the 11-value observation tensor; it does not add trainable
+parameters by itself. The two hidden layers each contain 128 neurons. Hidden
+means these are intermediate calculations, rather than the final answer.
+The output layer has three neurons, corresponding to straight, right, and left.
+
+The architecture is `11 -> 128 -> 128 -> 3`, with ReLU after each hidden layer.
+We can change `input_dim`, `hidden_size`, or `output_dim`, but the defaults match
+the existing environment. A single input has shape `(11,)`; a batch of four
+inputs has shape `(4, 11)` and produces output shape `(4, 3)`. Shape describes
+how many entries exist along each axis, not what their values mean.
+
+### ReLU: introducing a nonlinear activation
+
+ReLU calculates `max(0, z)`: negative values become zero and positive values
+remain unchanged. For example, -0.3 becomes 0 and 0.5 stays 0.5. An activation
+function lets the network model nonlinear relationships. Without nonlinear
+activations, composing several Linear layers would still be equivalent to one
+affine transformation, even though it contained more arithmetic.
+
+Our `forward()` uses `self.relu()` after the first two Linear layers. There is
+no ReLU or Softmax after the final layer because Q-values must be able to have
+either sign and arbitrary magnitude.
+
+### Forward propagation: calculating predictions
+
+`model(inputs)` calls the module's `forward()` method. The first layer combines
+the observation flags, ReLU changes its results, the second layer combines
+those activations, and the last layer returns three numbers. This calculation
+is forward propagation. It does not change the weights or teach the network.
+
+`snake_ai/demos/network.py` resets the real environment with seed 42 and uses
+`torch.tensor(list(observation), dtype=torch.float32, device='cpu')` to convert
+the standard-library array into a tensor. A tensor is PyTorch's numerical array;
+float32 uses a 32-bit floating-point value for each number. The demo calls
+`model.eval()` and `torch.no_grad()` for inference. Eval mode controls the
+behavior of modules such as dropout if we add them later; no_grad disables
+gradient tracking. Neither operation trains the model.
+
+For this fixed example the untrained outputs are approximately
+`[-0.00737532, -0.12700197, -0.03377551]`. `argmax` returns the index of the
+largest number: index 0, straight. All three can be negative and one still has
+the highest value. The resulting environment move earns reward 0 and continues
+the episode. This is a mechanical demonstration, not a learned decision.
+
+### Loss: measuring prediction error
+
+In `snake_ai/demos/optimisation.py`, we make a batch of three fixed feature rows
+and invent three target triples. For one row a target is `[1, 0, -1]`. These
+are just teaching labels, not Snake rewards or Bellman targets. The example is
+ordinary supervised regression: predict specified numerical values.
+
+`nn.MSELoss()` calculates mean squared error. For each output it subtracts the
+target, squares the difference, then averages over all nine outputs in the batch.
+If a prediction is 0.2 and its target is 1, that entry contributes
+`(0.2 - 1)^2 = 0.64` before averaging. Squaring makes either sign of error
+positive and gives larger errors more influence. Loss is a scalar measuring
+error against our chosen labels, not the game's displayed score.
+
+### Gradients: local sensitivity of the loss
+
+A gradient describes how a small parameter change affects the loss locally.
+For a particular weight, a positive derivative means increasing it slightly
+tends to increase the loss nearby; moving it in the opposite direction tends
+to help locally. Gradients are not guarantees about large changes.
+
+For the simple squared error `(prediction - target)^2`, the derivative with
+respect to the prediction is `2*(prediction - target)`. PyTorch also accounts
+for averaging and all the calculations between a weight and the prediction.
+Each parameter tensor has a `.grad` tensor containing those derivatives after
+backpropagation. Our example reports an aggregate gradient L2 norm of about
+0.64655010, calculated by squaring and summing all gradient entries and taking
+the square root. A nonzero norm shows that there is a direction for an update;
+it is not a Snake performance metric.
+
+### Backpropagation: calculating the gradients
+
+While the forward pass runs with gradient tracking enabled, PyTorch records how
+the calculations depend on trainable parameters. `loss.backward()` works back
+through this computation graph using the chain rule, which combines derivatives
+through a sequence of operations. We do not manually derive each layer's weights.
+
+Backpropagation calculates gradients; it does not itself update the weights.
+PyTorch accumulates gradients by default. `optimiser.zero_grad()` clears old
+ones before `backward()` so we use this batch's derivatives. The model tests
+verify that gradients exist, are finite, and include nonzero entries.
+
+### Optimiser: applying a parameter update
+
+The demo creates `torch.optim.SGD(model.parameters(), lr=0.001)`. In this simple
+configuration, stochastic gradient descent updates each parameter by
+`new_weight = old_weight - learning_rate * gradient`. Biases are adjusted too.
+For a weight 0.4 and gradient 0.2, this gives `0.4 - 0.001*0.2 = 0.3998`.
+The learning rate controls the size of the step.
+
+The actual code performs a forward pass, calculates MSE, clears gradients,
+calls `loss.backward()`, and calls `optimiser.step()` exactly once. It then does
+a new forward pass on the same batch to measure loss after the update. Measuring
+the old `loss` tensor again would still report the old calculation.
+
+With seed 7 and learning rate 0.001, loss changed from 0.5388405919 to
+0.5384227037. All six trainable parameter tensors changed: weights and biases
+for each of three Linear layers. One optimiser step does not guarantee a lower
+loss for every configuration. Even this measured decrease only fits our invented
+labels a little better; it teaches us nothing about the model's ability to play.
+
+### Q-values: the eventual meaning of the outputs
+
+After future reinforcement-learning training, a Q-value is intended to estimate
+expected discounted cumulative reward for taking one action from an observation
+and then following a policy. Discounting gives rewards further in the future
+less weight according to a chosen discount factor. It is not a probability of
+choosing an action, nor just the immediate reward for the next move.
+
+Our three output positions correspond to `0=straight`, `1=right`, and `2=left`.
+Standard DQN treats these as regression values. Softmax would force positive
+values summing to one, removing the freedom to express the value scale and
+negative returns. That is why `output_layer` returns raw numbers.
+For now, these outputs come from random initialisation; calling them Q-values
+describes their intended role, not evidence that they estimate rewards accurately.
+
+### Scope and reproducibility
+
+The network demo takes one real environment step. The optimisation demo never
+uses environment transitions and never builds DQN targets. We have no replay
+memory, epsilon-greedy exploration, target network, Bellman update, or training
+loop. The two demos create separate fresh models and save no model files.
+
+CPU-only PyTorch 2.15.0+cpu was installed in the existing Python 3.12 environment.
+Its optional NumPy bridge warns because NumPy is absent; our list-to-tensor
+conversion does not need that bridge. A Pygame packaging deprecation also appears
+in the full test suite. These warnings do not prevent the demos or tests running.
+Same seeds reproduce model initialisation and outputs on this installation;
+different library versions, devices, or platforms can still produce differences.
+
+The 22 new model/demo tests and all 88 earlier tests pass: 110 in total. The
+existing engine, renderer, environment, and baseline files were preserved.
+The limitations of partial observations still apply; a neural network cannot
+reconstruct missing board information simply by having more neurons. Milestone
+4 will need approved learning-algorithm work and decisions about truncations,
+rewards, and observations before any claim of trained Snake performance.
