@@ -1,0 +1,7 @@
+episode,environment_seed,score,episode_reward,episode_length,epsilon,mean_training_loss,end_reason,terminated,truncated,episode_complete,environment_steps,optimiser_steps
+1,100000,0,-10.0,74,0.998594,0.054630627781576055,collision,True,False,True,74,11
+2,100001,0,-10.0,61,0.997435,0.10350211053619354,collision,True,False,True,135,72
+3,100002,0,-10.0,209,0.993464,0.09544667116285978,collision,True,False,True,344,281
+4,100003,1,0.0,32,0.992856,0.15204857555249873,collision,True,False,True,376,313
+5,100004,0,-10.0,98,0.990994,0.10759651425593932,collision,True,False,True,474,411
+6,100005,0,0.0,26,0.9905,0.15285485108212854,run_step_cap,False,True,False,500,437

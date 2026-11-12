@@ -1,0 +1,27 @@
+{
+  "status": "environment_step_cap",
+  "duration_seconds": 0.5076556999993045,
+  "completed_episodes_this_run": 5,
+  "logged_episode_rows": 6,
+  "environment_steps_this_run": 500,
+  "environment_steps_total": 500,
+  "optimiser_updates_this_run": 437,
+  "optimiser_updates_total": 437,
+  "replay_size": 500,
+  "final_epsilon": 0.9905,
+  "score_mean": 0.2,
+  "score_median": 0,
+  "score_min": 0,
+  "score_max": 1,
+  "last_100_mean_score": 0.2,
+  "weights_changed": true,
+  "training_seeds": [
+    100000,
+    100001,
+    100002,
+    100003,
+    100004,
+    100005
+  ],
+  "checkpoint": "results\\milestone4_smoke\\checkpoints\\final.pt"
+}

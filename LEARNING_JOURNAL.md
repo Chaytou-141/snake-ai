@@ -369,3 +369,197 @@ The limitations of partial observations still apply; a neural network cannot
 reconstruct missing board information simply by having more neurons. Milestone
 4 will need approved learning-algorithm work and decisions about truncations,
 rewards, and observations before any claim of trained Snake performance.
+
+## Milestone 4: learning action values from gameplay
+
+### What DQN adds
+
+A Deep Q-Network uses a neural network to estimate the value of actions, then
+adjusts those estimates using actual transitions collected from the environment.
+In Milestone 3 we practised changing weights toward invented labels. In Milestone
+4, `DQNAgent` in `snake_ai/agents/dqn_agent.py` builds learning targets from
+gameplay: current observation, action, reward, next observation, and end flags.
+
+The neural network is still 11 -> 128 -> 128 -> 3 with ReLU hidden activations
+and raw outputs. The new parts are replay memory, an exploration policy, a
+second network for targets, and a training loop. This is standard DQN; it does
+not include Double DQN or later milestone improvements.
+
+### An experience and replay memory
+
+Suppose the snake is moving right and we choose action 2, a left turn toward
+the top of the screen. `SnakeEnv.step(2)` supplies the resulting observation,
+reward, and end flags. Together with the original observation and action,
+that forms one experience. `DQNAgent.remember()` copies it into `ReplayBuffer`
+and advances the environment-step counter.
+
+`ReplayBuffer` uses `deque(maxlen=50000)`, so the oldest item leaves when memory
+is full. Observations are copied into tuples, avoiding a bug where changing the
+current observation would accidentally change an older experience. A sample
+becomes float32 state/reward tensors, int64 action indices, and boolean flags.
+
+Consecutive Snake moves are related: one follows directly from another in the
+same part of the board. Learning only from that sequence can overemphasise a
+recent situation. `sample(64)` mixes experiences from different times, reducing
+these correlations and allowing reuse of previous gameplay. Sampling is without
+replacement within a batch, but an experience can appear in many different
+batches. A separate seeded RNG makes sampling reproducible without interfering
+with food randomness or exploration.
+
+### Exploration: gathering information through random actions
+
+If we always followed an untrained network's highest output, we might repeat
+the same poor choices and see little of the game. Epsilon-greedy adds exploration:
+with probability epsilon choose a uniformly random action; otherwise use argmax.
+It does not avoid dangerous actions during exploration. Random collisions are
+part of the information used to learn.
+
+Epsilon starts at 1.0. It decreases linearly to 0.05 over 50,000 collected
+environment moves, remaining at 0.05 afterward. At 25,000 moves it is 0.525.
+Environment moves and optimiser updates are different counters: the first 999
+moves collect data without updates, then learning starts at move 1,000 when
+enough replay samples exist. Predicting an action or doing an extra training
+update does not itself advance epsilon.
+
+`act(observation, evaluate=True)` ignores training epsilon and acts greedily.
+It neither changes the schedule nor consumes the exploration RNG. Evaluation
+therefore measures the learned policy without random exploratory failures and
+does not change what the next training action would have been.
+
+### Updating the value of the action actually taken
+
+The online network returns three numbers, but each experience tells us what
+happened after only one selected action. `selected_q_values()` uses PyTorch's
+`gather` to select that output. For predictions `[2, 4, 1]` and action 0, the
+prediction being trained is 2, not the maximum 4 and not all three values.
+Only the selected output receives a direct error signal from that transition;
+shared hidden weights can still affect the other predictions after an update.
+
+The standard DQN target is:
+
+```text
+target = reward + gamma * (1 - terminated) * max Q_target(next_observation)
+```
+
+For example, if food gives reward 10, gamma is 0.99, and the target network's
+best next-state value is 4, the label is `10 + 0.99*4 = 13.96`. This accounts for
+both the food just eaten and the estimated reward still available afterward.
+For a collision giving -10, genuine termination makes the label exactly -10,
+regardless of any network output. There is no future gameplay after death.
+
+For a normal move truncated only by a time limit, reward 0 and next value 4
+give `0 + 0.99*4 = 3.96`. We preserve the bootstrap because we chose to stop the
+episode for a budget reason; the game did not naturally end. The environment's
+starvation limit is also treated as an external truncation. This is a modelling
+choice and is documented, especially because the observation hides that timer.
+The next observation comes from before reset, avoiding accidental learning
+across unrelated episodes.
+
+### Gamma: valuing the future
+
+Gamma, or the discount factor, determines the weight given to later rewards.
+With gamma 0.99, a reward one step later is weighted by 0.99, two steps later
+by `0.99*0.99`, and so on. A smaller gamma focuses more on immediate reward; a
+larger one places more weight on future possibilities. Our gamma 0.99 is an
+experimental starting point, not an established best value for Snake.
+
+### Online and target networks
+
+The online network makes action predictions and receives gradient updates. If
+we also changed all the quantities used to create its labels at every update,
+the learning problem could become unstable: a moving model would chase rapidly
+moving labels based on its own predictions.
+
+The target network is a separate copy whose weights stay fixed for a while.
+`compute_targets()` uses that copy to estimate future value. Every 1,000 optimiser
+updates, `load_state_dict()` copies the online weights into it. This provides a
+temporarily steadier reference; it does not make the estimates correct or
+guarantee stable learning. Our target is frozen with `requires_grad_(False)` and
+target calculations also run under `torch.no_grad()`. It receives no gradients
+and is not part of the Adam optimiser.
+
+This implementation uses the target network both to identify and value the
+largest next action. Separating those two roles would be Double DQN, which is
+outside this milestone.
+
+### Loss, gradients, and the optimiser
+
+The selected online predictions and detached targets are compared with
+`smooth_l1_loss`. Smooth L1, also called Huber loss with the default transition
+scale, is quadratic near zero error and linear for larger errors. It reduces
+the influence of large errors compared with plain squared error.
+
+The training step clears gradients, calls `loss.backward()`, clips the combined
+gradient norm to at most 10, and calls Adam's `step()`. Backpropagation tells us
+how changing each parameter affects the current batch loss. Adam uses gradients
+and its internal running estimates to update parameters at learning rate 0.0005.
+Clipping controls unusually large updates; it does not guarantee that the model
+will be stable or that every update will help gameplay. The CSV records the
+norm before clipping so clipping activity can be inspected.
+
+Loss measures disagreement with our current bootstrap labels, which themselves
+change as the target network changes. It is not a direct score or a fixed measure
+of correctness. Better game performance can coexist with noisy or increasing
+loss as the replay distribution and target values change. We must evaluate the
+policy, rather than declare learning merely because a loss curve falls.
+
+### Training stages and actual evidence
+
+We first ran all existing tests before committing Milestone 3 as `9a8e1e0`.
+Then unit tests checked DQN targets, replay, exploration, gradients, target copies,
+and checkpoints. A separate smoke run collected 500 experiences, made 437 finite
+updates, changed weights, and loaded its checkpoint successfully. A greedy
+evaluation check left weights and training progress unchanged.
+
+The initial experiment then used the fixed configuration in `configs/dqn.json`:
+seed 7, 500 episodes, and a 100,000-move cap. It completed all 500 episodes in
+54.23 seconds, using 33,629 moves and 32,630 updates. Training food seeds were
+100000 through 100499. Mean training score was 1.05, median 1, minimum 0, maximum
+8; the last 100 episodes averaged 1.96. Epsilon was still 0.361049 at the end,
+so random actions continued to shorten many training episodes. We did not
+extend the budget or search for better hyperparameters.
+
+The final checkpoint was evaluated greedily on food seeds 900000 through
+900099, reserved separately from training. A fresh random policy used those
+same environment seeds and its own action seeds 2000000 through 2000099. The
+two policies visit different states and need not consume food randomness at the
+same times; matching seeds provides paired starting conditions, not identical
+full trajectories.
+
+The DQN's mean score was 34.81, median 37, minimum 8, and maximum 58. Random's
+mean was 0.14, median 0, minimum 0, and maximum 1. Average episode lengths were
+637.28 and 59.64 moves. Every episode for both policies ended in collision:
+100% collision, 0% truncation, 0% win. The mean score difference was +34.67.
+That is measurable improvement in this comparison, but not a solved game or
+proof that other training seeds would produce the same result.
+
+The old random baseline also averaged 0.14 by coincidence, but it used different
+seeds and had a maximum of 2. It remains unchanged; the new paired results live
+in `results/milestone4_evaluation/`. This separation prevents confusing an old
+experiment with a fresh comparison. The checkpoint hash, seeds, and settings
+are included in the new evaluation summary.
+
+### Saving progress and reading charts
+
+`run_training()` saves episode and update CSVs, configuration, summary, static
+Matplotlib charts, periodic checkpoints, and a final checkpoint. Each experiment
+uses a new directory. Checkpoint paths refuse overwriting, and `.pt` files are
+ignored by Git. The five plots use episode axes for score/reward, optimiser
+steps for loss, and environment steps for epsilon. The rolling score plot uses
+up to 25 completed episodes; a partial final episode is clearly labelled in
+the CSV and omitted from completed-episode statistics.
+
+Ctrl+C preserves a final checkpoint and collected metrics. The checkpoint stores
+both networks, Adam state, counters, configuration, seeds, and some RNG states.
+Default loading is for frozen inference. `resume_training=True` is an explicit
+request for approximate continuation: replay memory and the active episode are
+not restored, so the replay sampling history cannot be reproduced. Counters and
+epsilon continue, a new episode uses the next training seed, and replay refills
+from scratch. We cannot promise an exact continuation of an interrupted run.
+
+Final verification: 36 focused tests and 146 total tests passed. Matplotlib
+installed NumPy as a dependency, and the earlier optional torch/NumPy integration
+warning is resolved; the existing Pygame packaging warning remains. No game rules,
+rewards, or observations changed. The 11-feature partial observation, modest
+single-seed experiment, and approximation on resume remain limitations. We stop
+at Milestone 4; further training strategies require a later approved milestone.
