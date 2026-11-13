@@ -28,10 +28,10 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A visual playback complete; 5B/5C not implemented |
+| 5 | Agent inspection and further analysis | 5A playback and 5B collision diagnostics complete; 5C not implemented |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
-The remaining roadmap is provisional. Collision diagnostics, algorithm changes,
+The remaining roadmap is provisional. Further analysis, algorithm changes,
 additional experiments, and portfolio features have not been completed.
 
 ## Clone and install
@@ -75,25 +75,13 @@ Quick commands after setup:
 .\.venv\Scripts\python.exe -m snake_ai.training.train --config configs/dqn.json --output results/training_new
 ```
 
-## Setup on Windows
+## VS Code
 
-Requires Python 3.11 or newer. Open this folder in VS Code (rather than the
-neighboring electricity project). The initial environment was created with Python
-3.12. Run these PowerShell commands to reproduce the setup:
-
-```powershell
-Set-Location 'C:\Users\ilach\Desktop\VSCODE\snake-ai'
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
-```
-
-The editable install includes Pygame; the `dev` extra includes pytest. PyTorch
-is needed for the model, training, and trained playback; see setup above. Using the interpreter
-directly avoids PowerShell activation-policy issues. VS Code settings select
-`.venv` and enable pytest discovery. Install the
-Microsoft Python and Python Debugger extensions for editor testing and F5 launch.
-If VS Code retains another interpreter, use **Python: Select Interpreter** and
-choose `.venv\Scripts\python.exe`.
+Open the `snake-ai` folder and install the Microsoft Python and Python Debugger
+extensions for editor testing and F5 launch. Project settings select `.venv` and
+enable pytest discovery. If VS Code retains another interpreter, use **Python:
+Select Interpreter** and choose `.venv\Scripts\python.exe`. The direct interpreter
+commands above avoid PowerShell activation-policy issues.
 
 ## Play
 
@@ -175,6 +163,9 @@ snake-ai/
     __init__.py
     __main__.py
     evaluate.py
+    evaluation/
+      __init__.py
+      collision_diagnostics.py
     models/
       __init__.py
       dqn.py
@@ -209,6 +200,7 @@ snake-ai/
     test_dqn.py
     test_training.py
     test_trained_ai.py
+    test_collision_diagnostics.py
   configs/
     dqn.json
   results/
@@ -227,18 +219,20 @@ snake-ai/
 PyTorch is version-pinned; other dependencies have ranges rather than a fully
 pinned lock file.
 Milestone 1 was verified with 33 passing tests and checkpointed in Git as
-`cee2d5a` before Milestone 2 edits. Milestone 2 was reverified with 88 passing
-tests and committed as `77d3151` (`feat: complete SnakeAI reinforcement learning environment`)
+`74211f1` before Milestone 2 edits. Milestone 2 was reverified with 88 passing
+tests and committed as `fccb88f` (`feat: complete SnakeAI reinforcement learning environment`)
 before Milestone 3 work. Existing baseline and repeat results were preserved and
 verified identical. Milestone 3 was reverified with 110 passing tests and committed
-as `9a8e1e0ff49cc0e671126de9576edc5f1bf3daf0` with message
+as `18c462c06d37200f50d91d1fd762842717adc2d2` with message
 `feat: complete SnakeAI PyTorch neural network`. Milestone 4 was reverified with
 146 passing tests, its checkpoint and recorded results were checked, and it was
-committed as `5067a307439d119ffdc78b563281e3d610fa84a0` with message
+committed as `e0bd9cf7078ee886bf762019a94365f89d4eb575` with message
 `feat: implement and train SnakeAI DQN agent`. Milestone 5A is verified with
-173 passing tests and prepared for the Git checkpoint
-`feat: add trained SnakeAI playback visualisation`. Generated checkpoints remain
-local and ignored. The GitHub setup does not alter training or evaluation data.
+173 passing tests and committed as `1babc0231f249d8400447ec3f7d74cd765bd4d63`
+(`feat: add trained SnakeAI playback visualisation`). These are the published
+hashes after the authorised commit-email rewrite; contents and original dates
+were preserved. Generated checkpoints remain local and ignored. Milestone 5B
+changes remain uncommitted for review.
 
 ## Milestone 2: headless environment
 
@@ -399,8 +393,8 @@ versions is not guaranteed. The wrapper is Gymnasium-style, not a full Gymnasium
 environment with spaces or registration.
 
 The same tested engine rules continue to serve human play and headless clients.
-Milestone 3 supplies tensor conversion and a network; the learning algorithm
-remains future work as described below.
+Milestone 3 supplies tensor conversion and a network; Milestone 4 implements
+the standard DQN learning algorithm described below.
 
 ## Milestone 3: neural-network development
 
@@ -526,25 +520,16 @@ changed weights, same-seed initialisation/predictions, actual environment input,
 repeatable demos, and headless execution. No graphical manual play-through was
 performed by Codex for this milestone.
 
-There is one focused-test warning and two full-suite warnings from dependencies:
-PyTorch cannot initialise its optional NumPy bridge because NumPy is not installed;
-Pygame also reports deprecated `pkg_resources` use after its dependency update.
-Tensor operations and both demos work without NumPy; no warning is suppressed.
+At the Milestone 3 checkpoint there was one focused-test warning and two
+full-suite warnings: NumPy was absent and Pygame used deprecated `pkg_resources`.
+Milestone 4 subsequently installed NumPy with Matplotlib, resolving the bridge
+warning; the Pygame deprecation remains. Neither warning is suppressed.
 The pure game/environment tests do not import torch. Running the model tests
 requires the `ml` extra. Seeds reproduce results on this same installation, but
 identical values across versions, devices, or platforms are not guaranteed.
 
-## Milestone 3 boundary (historical)
-
-The network has never learned to play Snake. Before approved DQN work, revisit
-the partial observation and reward choices, specify handling of truncations in
-learning targets, then implement the learning algorithm, replay memory,
-exploration, target network, training/checkpoint workflow, and evaluation on
-separate seeds. None of that machinery is part of Milestone 3. Existing random
-baseline files remain unchanged and no new performance comparison is claimed.
-
-The statements immediately above describe the end of Milestone 3. Milestone 4,
-below, now implements the approved learning work with separate saved results.
+The two Milestone 3 educational demos remain untrained examples. The trained
+agent and its separate measured results are described in Milestone 4 below.
 
 ## Milestone 4: standard DQN training
 
@@ -868,5 +853,70 @@ traps, its value estimates are approximate, and its original training budget was
 limited. All 100 original held-out DQN episodes eventually collided despite
 improved scores. Watching playback does not improve the model, and pausing or
 changing speed does not change its decisions. A chosen seed on another library
-version may not give exactly identical predictions. No Milestone 5B/5C work,
+version may not give exactly identical predictions. No Milestone 5C work,
 retraining, architecture changes, reward changes, or new dependencies are included.
+
+## Milestone 5B: collision diagnostics
+
+Diagnostics replay the saved greedy policy headlessly on the original 100
+evaluation seeds (900000–900099). Before publishing analysis, the workflow
+checks the checkpoint hash and configuration and reproduces **every episode's
+score, moves, reward, end flags/reason and all aggregate metrics** from Milestone 4.
+It never trains or changes the policy, environment, rewards, or visual playback.
+
+```powershell
+.\.venv\Scripts\python.exe -m snake_ai.evaluation.collision_diagnostics
+
+# The saved output directory already exists; choose a fresh name for a repeat.
+.\.venv\Scripts\python.exe -m snake_ai.evaluation.collision_diagnostics --output results/milestone5b_repeat
+```
+
+The command requires the existing local checkpoint and Milestone 4 reference
+files. `--checkpoint` and `--reference` can point to matching copies. Output
+directories are never overwritten; a reproduction mismatch stops the analysis.
+
+The three final-event categories are:
+
+- **A — avoidable immediate collision:** another action was safe for the next move.
+- **B — no immediately safe action:** all three actions would collide immediately.
+- **C — other or uncertain:** another end reason, or inconsistent evidence.
+
+Safety uses the engine's `would_collide()` and existing relative-action mapping,
+including the departing tail rule. A safe next move does not prove future
+survival. Type B does not prove that earlier decisions could not avoid the trap.
+Earlier movements are not automatically labelled mistakes.
+
+Verified results: **100 episodes**, mean score **34.81**, median **37**, maximum
+**58**, mean moves **637.28**, collision rate **100%**, matching the original
+evaluation exactly. Categories: **A: 0 (0%)**, **B: 100 (100%)**, **C: 0 (0%)**.
+All final observations exposed danger in all three directions. There was no
+immediately safe final alternative, so selected-versus-safe Q-value gaps are
+undefined, not zero. Selected final Q-values averaged **-9.417852**, ranging from
+**-10.043816 to -8.523903**. Their sign is not the safety classifier.
+
+Evidence is saved under `results/milestone5b_collision_diagnostics/`:
+
+- [Analysis report](results/milestone5b_collision_diagnostics/report.md), including schema, examples, and limitations.
+- `summary.json`: configuration, checkpoint/reference hashes, exact seeds, reproduction checks, and statistics.
+- `episodes.csv`: one row per episode; `collisions.csv`: one row per final collision.
+- `final_moves.csv`: 3,000 retained moves, at most 30 per episode, with actual
+  pre/post head, complete bodies, food, score, observations, Q-values, action,
+  safety flags, reward, and end flags/reason. Structured cells contain JSON.
+- `example_failure.json`: detailed first Type B and maximum-score examples.
+  The Type A example is `null` because none occurred; no example is invented.
+- `collision_categories.png`: a static count chart.
+
+The engine keeps its last valid head/body on a collision. Logs preserve that
+actual post-state and separately label the projected `attempted_head`.
+Q-values estimate discounted future reward, not probabilities. All 23 earlier
+checkpoint/result files remain byte-for-byte unchanged. No new dependencies
+were added, and diagnostics did not modify model weights or training state.
+
+Validation: **17 focused tests passed; 190 full-suite tests passed**, with only
+the existing Pygame packaging warning. Run focused checks with
+`.\.venv\Scripts\python.exe -m pytest tests/test_collision_diagnostics.py -q`.
+The retained histories cover only 30 moves and the policy sees only 11 features;
+these observations do not establish a particular cause of earlier trapping.
+The next investigation should examine earlier planning decisions under a
+predefined analysis, with future model comparisons using fresh evaluation seeds
+and multiple training seeds. No improvements are implemented in this milestone.

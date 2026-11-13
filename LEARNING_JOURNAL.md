@@ -678,3 +678,118 @@ reuse in the AI view; its default human-play rendering and controls remain the
 same. No training algorithm, model architecture, reward, saved checkpoint, or
 evaluation result changed. Milestone 5A stops at visual inference; further
 changes belong to a separately approved milestone.
+
+## Milestone 5B: learning from collision evidence
+
+### Why a trained model can still crash
+
+Training improved our policy's scores, but it did not prove that the agent can
+avoid every trap. The model only receives 11 features, not the full board or
+snake-body geometry. Its Q-values are approximate estimates learned from a
+finite set of experiences. Either limited information or imperfect estimates
+could matter. Diagnostics help us examine recorded events instead of assuming
+which explanation caused a particular failure.
+
+The new module is `snake_ai/evaluation/collision_diagnostics.py`. It uses the
+existing checkpoint loader, `agent.predict()`, `env.observation()`, relative
+action conversion, `would_collide()`, and `env.step()`. It gives the model no
+extra information. Complete bodies are recorded for our analysis only.
+
+### What a diagnostic records
+
+`record_move()` copies the state immediately before the action: head and body,
+heading, food, score, length, and observation. It records the three Q-values and
+their argmax, checks each relative action against the existing collision
+predictor, then takes the selected action through the environment. Finally it
+copies the actual resulting state, reward, and end flags/reason.
+
+Copying matters. If a log simply kept a reference to a changing body list, later
+moves could alter our evidence about an earlier moment. A `deque(maxlen=30)` in
+`diagnose_episode()` keeps only the latest 30 copied moves. We therefore retain
+useful local context without storing the entire trajectory of every episode.
+
+On a collision, our engine leaves the head at its last valid cell. For example,
+a head at [19, 0] can attempt to move outside the wall while its actual post-action
+position stays [19, 0]. `attempted_head` is explicitly a projected destination;
+`head_after` and `body_after` come from the real engine state, not a reconstruction.
+
+### Immediate safety versus long-term planning
+
+The predictor answers a narrow question: would this one move hit a wall or body,
+allowing the tail's departing cell when appropriate? It does not simulate all
+possible futures. A move can be safe now but contribute to a trap later. Seeing
+a collision later does not automatically make every preceding move a mistake.
+
+`classify_end()` gives the final event one of three labels. Type A means the
+agent chose an immediate collision while another action was immediately safe.
+Type B means no safe next action existed. Type C covers other endings or evidence
+that cannot be trusted consistently. A Type B collision may have been preventable
+earlier; the label says only that the final state offered no safe next move.
+
+### Why argmax can select a dangerous move
+
+Argmax returns the largest estimate even when every available action is bad.
+It does not create a safe action. In episode 1, seed 900000, the final Q-values
+were approximately Straight -10.175884, Right -9.489347, Left -10.461297.
+Right was highest, so the greedy agent chose it. The collision predictor marked
+all three actions dangerous. There was no immediately safe final alternative.
+
+A Q-value estimates future discounted reward, not a probability or an immediate
+safety signal. Negative values can occur for safe actions too. If a safe
+alternative exists, we can compare its Q-value with the selected value. If none
+exists, that comparison is undefined; our JSON uses `null` and CSV uses blank
+scalar cells, rather than inventing a gap of zero.
+
+### What actually happened in the 100 episodes
+
+Before drawing conclusions, `verify_reproduction()` checked every episode's
+score, move count, reward, end flags, and end reason against the original saved
+evaluation. It also compared the complete aggregate metrics. All reproduced:
+mean score 34.81, median 37, maximum 58, and mean episode length 637.28 moves.
+Each episode ended in collision. All 100 were Type B; none were Type A or C.
+
+This means our sample does not show final-step failures where the agent ignored
+an immediately safe alternative. It does not prove the network planned well
+earlier, or that the observation representation caused the trap. The saved final
+30 moves allow further inspection, but the setup may have begun before them.
+
+The requested Type A example could not be supplied because no such event was
+observed. The detailed examples instead include the first Type B event (episode
+1, score 40, collision on move 838) and the maximum-score event (episode 35,
+seed 900034, score 58, collision on move 1372). In the latter, Right had the
+highest Q-value, approximately -9.271073, but all three choices collided. Missing
+examples are explicitly absent rather than manufactured from another dataset.
+
+Selected final Q-values averaged -9.417852, with a range from -10.043816 to
+-8.523903. They were all negative in this particular sample. We used the engine
+to establish danger; we did not infer danger from the sign of the numbers.
+
+### How failure analysis guides a future experiment
+
+The results make earlier trap formation a useful next question. A future,
+separately approved analysis could define measurements of reachable space or
+longer-term options and identify when those options shrink. It could then
+motivate a controlled comparison of observation or learning choices. That would
+be a hypothesis to test, not an improvement established by today's logs.
+
+The current seeds have already been evaluated and inspected, so future model
+comparisons should use fresh untouched evaluation seeds and independent training
+seeds. We should define the comparison before looking at those new results.
+This milestone performs no retraining, reward/feature changes, algorithm changes,
+or multi-seed training experiments.
+
+### Files and checks
+
+`results/milestone5b_collision_diagnostics/` contains the summary, episode rows,
+3,000 retained moves, final collisions, detailed JSON examples, a Markdown report
+with the schema, and a static chart. The runner refuses existing output directories
+and stops before publishing analysis if reproduction fails. Model parameters,
+training counters/RNG, checkpoint bytes, and reference files are checked for
+preservation. All 23 older saved files were preserved, and all earlier gameplay,
+training, evaluation, and playback source files remain unchanged.
+
+The 17 focused diagnostics tests and full 190-test suite pass. The only warning
+is the pre-existing Pygame packaging deprecation. Earlier journal commit hashes
+refer to the historical local backup; the README now lists the equivalent hashes
+published after the authorised email rewrite. Milestone 5B stays uncommitted and
+is not pushed until reviewed.
