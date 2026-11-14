@@ -25,7 +25,7 @@ def summarise(rows: list[dict]) -> dict:
         "win_rate": sum(row["end_reason"] == "win" for row in rows) / count}
 
 
-def evaluate_agent(agent: DQNAgent) -> tuple[list[dict], dict]:
+def evaluate_agent(agent: DQNAgent, *, include_random: bool = True) -> tuple[list[dict], dict]:
     config = agent.config
     seeds = list(range(config.evaluation_seed_start,
                        config.evaluation_seed_start + config.evaluation_episodes))
@@ -36,8 +36,9 @@ def evaluate_agent(agent: DQNAgent) -> tuple[list[dict], dict]:
     before_target = {key: value.clone() for key, value in agent.target.state_dict().items()}
     before_progress = (agent.environment_steps, agent.optimiser_steps, agent.epsilon, agent._rng.getstate())
     rows = []
-    for policy in ("dqn_greedy", "random"):
-        env = SnakeEnv(config.environment, config.rewards)
+    policies = ("dqn_greedy", "random") if include_random else ("dqn_greedy",)
+    for policy in policies:
+        env = SnakeEnv(config.environment, config.rewards, observation_mode=config.observation_mode)
         random_agent = RandomAgent()
         for index, seed in enumerate(seeds):
             observation, _ = env.reset(seed=seed)
@@ -59,9 +60,9 @@ def evaluate_agent(agent: DQNAgent) -> tuple[list[dict], dict]:
             or before_progress != (agent.environment_steps, agent.optimiser_steps, agent.epsilon, agent._rng.getstate())):
         raise RuntimeError("Evaluation changed training state")
     summaries = {policy: summarise([row for row in rows if row["policy"] == policy])
-                 for policy in ("dqn_greedy", "random")}
+                 for policy in policies}
     difference = {key: summaries["dqn_greedy"][key] - summaries["random"][key]
-                  for key in summaries["random"] if key != "episodes"}
+                  for key in summaries.get("random", {}) if key != "episodes"}
     manifest = {"environment_seeds": seeds, "random_policy_seeds": list(range(
             config.random_policy_seed_start, config.random_policy_seed_start + len(seeds))),
         "config": config.to_dict(), "dqn_epsilon": 0.0, "weights_unchanged": True,

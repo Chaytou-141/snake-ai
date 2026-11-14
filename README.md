@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback, 5B collision diagnostics, and 5C trap analysis complete |
+| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D feature comparison complete |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -1039,3 +1039,145 @@ The next controlled experiment should predefine a baseline versus a
 geometry-informed observation hypothesis, matched training budgets, independent
 training seeds, and fresh untouched evaluation seeds. This analysis motivates
 testing that hypothesis; it does not establish that adding features will help.
+
+## Milestone 5D: controlled observation comparison
+
+Research question: **does adding three static obstacle-distance features improve
+mean food score over the original 11-feature observation?** The hypothesis and
+protocol were fixed before training in `configs/feature_comparison_v1.json`.
+Model B is not assumed to be better. This experiment uses six fresh models,
+not the earlier seed-7 checkpoint.
+
+### Observation modes and compatibility
+
+`SnakeEnv(..., observation_mode='original11')` remains the default. Model A uses
+the original 11 binary features and **11 → 128 → 128 → 3**, with **18,435** parameters.
+`observation_mode='distance14'` appends straight/right/left distances in that order.
+Model B uses **14 → 128 → 128 → 3**, with **18,819** parameters.
+
+The added values count consecutive free cells before the current wall/body,
+including the tail as an occupied obstacle, divided by
+`max(board_width, board_height) - 1` (**19** for this 20×20 board). Inputs stay in
+[0,1]. This is the exact static distance definition from 5C, moved to a small
+standard-library-only geometry helper so the environment does not import ML
+or plotting libraries. Immediate danger still respects a departing tail; the
+static distance can be zero even when moving into that cell is legal.
+
+The first 11 values do not change. `TrainingConfig` derives input/replay sizes
+from the selected mode; checkpoint configuration preserves that choice, and
+training/evaluation construct matching encoders. Old checkpoints without a mode
+field default to 11 features, with the legacy configuration schema preserved.
+The original playback and 5B/5C reference workflows remain for the original
+11-feature checkpoint; the comparison runner evaluates both new modes.
+
+### Fixed training and evaluation protocol
+
+Each variant trains from scratch with independent training seeds **11, 22, 33**.
+Run order is A11, B11, A22, B22, A33, B33. Each run is limited to **500 episodes
+or 100,000 moves**, whichever comes first. Shared settings are Adam 0.0005,
+gamma 0.99, replay 50,000, batch 64, learning starts 1,000, target copy every
+1,000 optimiser updates, gradient norm cap 10, epsilon 1.0 to 0.05 over 50,000
+environment steps, and two 128-neuron hidden layers. Rewards, board, starvation,
+and episode limits are unchanged. CPU uses one thread and deterministic
+algorithms where supported.
+
+For training seed s, Python and PyTorch use s; replay uses s+1 and exploration
+s+2. Both variants reset episode index i with food seed `200000 + 1000*s + i`.
+Every final model is greedily evaluated on the same **100 fresh environment
+seeds 910000–910099**, disjoint from training, development, and earlier evaluation
+seeds. No best-checkpoint selection, best-seed selection, or hyperparameter
+search is performed. These seeds are used only after training each model.
+
+Equal episode budgets need not give equal numbers of experiences or updates;
+actual counts are recorded. Equal food seeds provide paired initial conditions,
+not identical trajectories. The different input size changes random weight
+initialisation draws and adds 384 parameters, so hidden tensors need not match.
+Reproducibility is checked on this installation, not promised across platforms
+or library versions.
+
+### Commands and saved outputs
+
+Run focused validation first, then the separate development smoke test:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_feature_comparison.py -q
+.\.venv\Scripts\python.exe -m snake_ai.experiments.feature_comparison --smoke
+.\.venv\Scripts\python.exe -m snake_ai.experiments.feature_comparison
+
+# Complete or inspect an individual pair without repeating successful others.
+.\.venv\Scripts\python.exe -m snake_ai.experiments.feature_comparison --model A --seed 11
+.\.venv\Scripts\python.exe -m snake_ai.experiments.feature_comparison --aggregate-only
+```
+
+Smoke testing uses development seed **77**, evaluation seeds **920000–920004**,
+and temporary training directories. Both modes must change weights, make finite
+updates, load checkpoints, and evaluate with frozen weights before full runs are
+allowed. Smoke scores are not scientific findings. Its technical checks are
+recorded in `validation.json`.
+
+Outputs live under `results/milestone5d_feature_comparison/`. `protocol.json` and
+`metadata.json` freeze configuration, software versions, and relevant source
+hashes. Each `runs/<model>_seed<seed>/training/` contains metrics and ignored
+checkpoints. Each run saves `evaluation.csv`, `evaluation.json`, and a hashed
+`complete.json` marker. Completed runs are verified and reused, never retrained.
+An already completed training stage can be reused to finish evaluation. Partial
+training or ambiguous partial evaluation artifacts stop for review instead of
+being overwritten or silently retried. Changes to protocol/source/software
+require review and a new protocol version/directory before affected reruns.
+
+Root `per_seed_summary.csv`, `comparison_summary.json`, and `report.md` present
+all six runs. Four charts show per-seed mean score, rolling training performance,
+episode length, and between-training-seed variability. The error bars are sample
+standard deviations across three training-seed means, not confidence intervals.
+
+The statistical unit is an independent training run. Report the mean and sample
+SD of three seed means for each variant, three paired B-minus-A differences, and
+their mean. The 300 evaluation episodes per variant are not 300 independent
+training replications. Conclusions remain preliminary; no unnecessary
+significance tests are used. See the saved report for the actual completed-run
+measurements and their limitations.
+
+### Actual 5D results
+
+All six runs completed **500 episodes** without reaching the 100,000-step cap.
+Each final checkpoint was evaluated once on all 100 specified evaluation seeds.
+
+| Model | Training seed | Training moves | Optimiser updates | Evaluation mean score |
+| --- | ---: | ---: | ---: | ---: |
+| A: 11 features | 11 | 33,282 | 32,283 | 29.70 |
+| B: 14 features | 11 | 30,903 | 29,904 | 22.91 |
+| A: 11 features | 22 | 35,500 | 34,501 | 31.51 |
+| B: 14 features | 22 | 34,005 | 33,006 | 13.31 |
+| A: 11 features | 33 | 33,742 | 32,743 | 25.94 |
+| B: 14 features | 33 | 30,170 | 29,171 | 23.67 |
+
+The mean of A's three training-seed means was **29.05**, with sample SD **2.84**.
+B's was **19.96**, with sample SD **5.77**. Paired B−A differences for seeds
+11, 22, and 33 were **−6.79, −18.20, and −2.27** food items. The mean paired
+difference was **−9.09**. B did **not** outperform A: its primary outcome was
+lower for all three seeds under this protocol. This does not establish that
+distance features generally harm learning or could never help another setup.
+
+Secondary metrics, including medians, within-policy score SD, mean lengths,
+and collision/truncation/win rates, are in the
+[complete report](results/milestone5d_feature_comparison/report.md) and raw CSVs.
+For example, B/seed 22 survived longer on average (691.12 versus 552.41 moves)
+while scoring less; it truncated in 51% of games. Longer episodes alone do not
+establish better food collection. No evaluated model won a game.
+
+The four saved charts are:
+
+- [Average evaluation score](results/milestone5d_feature_comparison/average_score.png).
+- [Rolling training scores](results/milestone5d_feature_comparison/training_performance.png).
+- [Evaluation episode length](results/milestone5d_feature_comparison/episode_length.png).
+- [Between-training-seed variability](results/milestone5d_feature_comparison/performance_variability.png).
+
+Validation included **21 focused comparison tests**, relevant existing checks,
+and a separate two-mode development smoke test (225 finite updates per mode).
+The full suite ran once: **229 passed, 0 failed**, with one dependency
+deprecation warning. Saved run hashes, all 600 evaluation records, paired
+configurations, and aggregate calculations were verified independently.
+All 31 tracked historical artifacts match Git, and the original seed-7 final
+checkpoint SHA-256 remains unchanged. The original model was not retrained, no
+historical results were regenerated, and no dependencies were added. Milestone
+5D remains uncommitted and has not been pushed.

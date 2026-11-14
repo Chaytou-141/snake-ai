@@ -25,13 +25,14 @@ class DQNAgent:
         # Constructor determinism does not alter the caller's torch RNG stream.
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(self.config.seed)
-            self.online = DQNNetwork(hidden_size=self.config.hidden_size).cpu()
-            self.target = DQNNetwork(hidden_size=self.config.hidden_size).cpu()
+            self.online = DQNNetwork(input_dim=self.config.input_dim, hidden_size=self.config.hidden_size).cpu()
+            self.target = DQNNetwork(input_dim=self.config.input_dim, hidden_size=self.config.hidden_size).cpu()
         self.target.load_state_dict(self.online.state_dict())
         self.target.requires_grad_(False)
         self.target.eval()
         self.optimiser = torch.optim.Adam(self.online.parameters(), lr=self.config.learning_rate)
-        self.replay = ReplayBuffer(self.config.replay_capacity, seed=self.config.seed + 1)
+        self.replay = ReplayBuffer(self.config.replay_capacity, seed=self.config.seed + 1,
+                                   observation_dim=self.config.input_dim)
         self._rng = random.Random(self.config.seed + 2)
         self.environment_steps = 0
         self.optimiser_steps = 0
@@ -44,12 +45,12 @@ class DQNAgent:
         return self.config.epsilon_start + progress * (self.config.epsilon_min - self.config.epsilon_start)
 
     def predict(self, state: Iterable[float]) -> torch.Tensor:
-        inputs = torch.tensor(observation_values(state), dtype=torch.float32)
+        inputs = torch.tensor(observation_values(state, self.config.input_dim), dtype=torch.float32)
         with torch.no_grad():
             return self.online(inputs).detach().clone()
 
     def act(self, state: Iterable[float], *, evaluate: bool = False) -> int:
-        values = observation_values(state)
+        values = observation_values(state, self.config.input_dim)
         # Greedy evaluation does not draw from or change training RNG/schedule.
         if not evaluate and self._rng.random() < self.epsilon:
             return self._rng.randrange(3)

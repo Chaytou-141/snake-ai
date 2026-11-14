@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import math
 
 from snake_ai.game import Direction, GameStatus, SnakeGame
+from snake_ai.game.geometry import free_cell_distance
 
 FEATURE_NAMES = (
     "danger_straight", "danger_right", "danger_left",
@@ -12,6 +13,15 @@ FEATURE_NAMES = (
     "food_left", "food_right", "food_above", "food_below",
 )
 _CLOCKWISE = (Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT)
+DISTANCE_FEATURE_NAMES = ("distance_straight", "distance_right", "distance_left")
+
+
+def feature_names(observation_mode: str = "original11") -> tuple[str, ...]:
+    if observation_mode == "original11":
+        return FEATURE_NAMES
+    if observation_mode == "distance14":
+        return FEATURE_NAMES + DISTANCE_FEATURE_NAMES
+    raise ValueError("observation_mode must be 'original11' or 'distance14'")
 
 
 def relative_direction(direction: Direction, action: int) -> Direction:
@@ -53,12 +63,16 @@ class EnvConfig:
 class SnakeEnv:
     """Wrap the engine. Call reset() before stepping and after an episode ends.
 
-    Observations are fresh standard-library array('f') objects of 11 float32
-    binary values. No NumPy, Gymnasium, Pygame, or PyTorch import is required.
+    Observations are fresh array('f') objects. The default 11 binary features
+    are unchanged; distance14 appends three normalised static distances.
+    No NumPy, Gymnasium, Pygame, or PyTorch import is required.
     """
 
     def __init__(self, config: EnvConfig | None = None,
-                 rewards: RewardConfig | None = None) -> None:
+                 rewards: RewardConfig | None = None, *,
+                 observation_mode: str = "original11") -> None:
+        self.feature_names = feature_names(observation_mode)
+        self.observation_mode = observation_mode
         self.config = config if config is not None else EnvConfig()
         self.rewards = rewards if rewards is not None else RewardConfig()
         self.game = SnakeGame(self.config.width, self.config.height)
@@ -84,6 +98,10 @@ class SnakeEnv:
                          food is not None and food[0] > head_x,
                          food is not None and food[1] < head_y,
                          food is not None and food[1] > head_y))
+        if self.observation_mode == "distance14":
+            divisor = max(game.width, game.height) - 1
+            features.extend(free_cell_distance(game, relative_direction(game.direction, action)) / divisor
+                            for action in range(3))
         return array("f", features)
 
     def _info(self) -> dict[str, object]:

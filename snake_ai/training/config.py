@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from snake_ai.rl import EnvConfig, RewardConfig
+from snake_ai.rl import EnvConfig, RewardConfig, feature_names
 
 
 @dataclass(frozen=True)
@@ -32,8 +32,10 @@ class TrainingConfig:
     cpu_threads: int = 1
     environment: EnvConfig = field(default_factory=EnvConfig)
     rewards: RewardConfig = field(default_factory=RewardConfig)
+    observation_mode: str = "original11"
 
     def __post_init__(self) -> None:
+        feature_names(self.observation_mode)
         positive = ("replay_capacity", "batch_size", "learning_starts", "target_update_interval",
                     "hidden_size", "epsilon_decay_steps", "episodes", "max_environment_steps",
                     "checkpoint_interval_episodes", "evaluation_episodes", "cpu_threads")
@@ -57,7 +59,16 @@ class TrainingConfig:
             raise ValueError("Training seed range must be below reserved evaluation seeds")
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        # Preserve the legacy config schema for default 11-feature checkpoints
+        # and saved historical evaluation comparisons.
+        if self.observation_mode == "original11":
+            data.pop("observation_mode")
+        return data
+
+    @property
+    def input_dim(self) -> int:
+        return len(feature_names(self.observation_mode))
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrainingConfig":

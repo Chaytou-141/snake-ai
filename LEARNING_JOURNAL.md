@@ -945,3 +945,153 @@ The 18 focused tests and all 208 project tests pass. All 30 older saved files
 remain unchanged. No model, reward, observation, algorithm, playback or training
 implementation was changed, and no retraining or new agent was introduced.
 Milestone 5C is verified for the checkpoint `feat: add SnakeAI trap formation analysis`.
+
+## Milestone 5D: a controlled feature experiment
+
+### Feature engineering is a hypothesis
+
+A feature is a number that describes part of the environment to the model.
+Our original observation gives 11 danger, direction, and food flags. It does
+not tell the network how many cells remain before an obstacle. We now test
+whether adding three relative static distances helps. We do not assume that
+more information must improve learning: extra inputs can be redundant, hard to
+use, or misleading. Static distance still ignores the body's future motion.
+
+`SnakeEnv` now has an explicit observation mode. `original11` remains the default
+and produces the same values as before. `distance14` appends the straight,
+right, and left free-cell distances after all 11 original values. The geometry
+calculation is shared with 5C through `game/geometry.py`; the basic environment
+still does not import PyTorch, NumPy, or Pygame.
+
+### Why normalise distances?
+
+Danger flags are zero or one. A raw distance on a 20×20 board can be as large as
+19, which would use a different numerical scale. We divide all three distances
+by `max(width,height)-1`, a fixed board-dependent value. Thus four free cells
+on this board give `4/19`, approximately 0.210526. Distances then fall between
+zero and one without changing what counts as an obstacle.
+
+The current tail is occupied for these static measurements, exactly as in 5C.
+A distance of zero can therefore coexist with an immediate safe action when
+the tail departs. The original danger flags continue to apply the real movement
+rule. This apparent disagreement reflects two different questions, not a change
+to collision rules.
+
+### Keeping the comparison controlled
+
+Model A has 11 inputs and 18,435 parameters; Model B has 14 inputs and 18,819.
+Both have two 128-neuron ReLU hidden layers and three raw action values. The
+extra 384 parameters are required by the larger input layer, not a separate
+network-depth change. We reuse the same DQN loss, replay, Adam optimiser,
+exploration schedule, and target updates for both.
+
+The protocol was written before final training. Each run has a maximum of 500
+episodes and 100,000 environment steps. Learning rate, gamma, rewards, episode
+limits, batch size, warmup, and all other settings are fixed. If a technical
+change is needed, it must be documented under a new protocol version rather
+than quietly changing the question after seeing results.
+
+The old seed-7 checkpoint is preserved and not used as a Model A replication.
+Both variants train from scratch. Old checkpoints have no observation-mode
+field; the loader interprets that as `original11`, keeping existing playback
+and scripts compatible. New 14-feature checkpoints record their mode so the
+loader can create a matching model and evaluation environment.
+
+### Independent training seeds and pairing
+
+The independent training seeds are 11, 22, and 33. Different random starts,
+exploration choices, and replay batches can produce different learned policies.
+Using three starts shows some of that variability. It is still a small sample
+of possible training runs, so a consistent result would remain preliminary.
+
+For a seed s, the action RNG uses s+2 and replay uses s+1. Python and PyTorch use
+s. Both A and B begin episode i with food seed `200000 + 1000*s + i`. Matching
+episode seeds makes the starting conditions comparable, while different choices
+can lead to different later food sequences and episode lengths. The changed
+input dimension also changes initialisation draws: the same seed does not mean
+every hidden-layer weight is identical between architectures.
+
+All six final checkpoints are tested greedily on environment seeds 910000
+through 910099. These are separate from training, the earlier 900000-series
+diagnostics, and the 920000-series smoke evaluation. Evaluation uses epsilon
+zero and checks that weights and training state do not change. We do not select
+the best seed or checkpoint using those outcomes.
+
+### Validation versus scientific results
+
+Before the six runs, focused tests check feature ordering, bounds, tail rules,
+model/replay dimensions, legacy loading, reproducibility, and correct pairing.
+A small smoke experiment uses development seed 77 in temporary directories.
+Each mode must collect data, make finite updates, change weights, load its
+checkpoint, and evaluate with the matching encoder without updating parameters.
+Those technical smoke scores are not evidence for the research question.
+
+The experiment runner freezes protocol, software versions, and source hashes
+in the output directory. A completed run has an integrity marker, so running
+the command again preserves it rather than retraining. Individual model/seed
+selection lets us complete missing runs without repeating successful ones.
+Incomplete training is preserved for review rather than approximately resumed
+and presented as equivalent to an uninterrupted protocol run.
+
+### What to average, and what variability means
+
+Each trained model gets 100 evaluation games. We first calculate its mean,
+median, variability, survival length, and end rates. Then we average the three
+independent training-seed means for each variant. Their sample standard
+deviation describes variability between learned policies, not uncertainty from
+100 independent model-training replications.
+
+For each training seed we subtract A's mean from B's mean. These three paired
+differences show whether the direction is consistent and how large it is.
+An average benefit driven by one very good run is different from a benefit
+seen at all three starts. The 300 games per variant must not be treated as
+300 independent training experiments. We use descriptive statistics without
+an unnecessary significance test based on that false assumption.
+
+Training charts include exploration, while evaluation is greedy, so their scores
+need not match. Equal episode caps also allow unequal environment-step counts
+and optimiser updates; the per-run results record both. Deterministic CPU
+settings support reproduction here, but do not promise identical floating-point
+behavior across operating systems or library versions. Final measurements and
+the resulting cautious interpretation are recorded in the comparison report.
+
+### What the six fixed runs actually showed
+
+All six models completed 500 training episodes, with no budget extension.
+A's evaluation means for training seeds 11, 22, and 33 were 29.70, 31.51, and
+25.94. B's were 22.91, 13.31, and 23.67. Averaging each model's three seed means
+gave A **29.05** and B **19.963333**. Their sample SDs across training-seed means
+were **2.841320** and **5.774473**, respectively.
+
+The paired B-minus-A differences were -6.79, -18.20, and -2.27, averaging
+-9.086667. The direction was consistent: B scored lower on all three starts.
+We therefore found no support for the proposed improvement under this fixed
+budget and feature definition. We should preserve that result rather than
+select the best B run or tune settings until a favourable comparison appears.
+Three seeds still do not prove that the features are generally harmful.
+
+A collected 33,282 / 35,500 / 33,742 training moves; B collected
+30,903 / 34,005 / 30,170. Optimiser updates were those counts minus 999 because
+learning began at move 1,000. Each model reached the episode cap before the
+step cap or epsilon minimum. These different experience counts and remaining
+exploration are part of the fixed-episode protocol, not identical computational
+experience. A future equal-step experiment would ask a related but different
+question and must be defined separately.
+
+Secondary outcomes also deserve context. B/seed 22 had a longer mean episode
+than A/seed 22, but a lower mean food score and 51% truncations. Remaining alive
+until an episode limit is not the same as collecting food effectively. No
+evaluated model filled the board. The saved per-episode records let readers
+inspect these outcomes without reducing the comparison to a single best score.
+
+Useful next work would be a new, explicitly controlled hypothesis about
+representation or training budget, informed by these limitations and tested
+with independent training seeds and fresh evaluation data. This milestone does
+not implement that next experiment. All six final runs were completed once;
+the temporary development smoke results were kept separate, and the original
+seed-7 checkpoint and historical artifacts remain unchanged.
+
+Final validation: 21 focused comparison tests passed, both development smoke
+cycles passed, and the full suite ran once with 229 passing tests and no
+failures (one dependency deprecation warning). Saved raw records reproduced
+the reported metrics without repeating training or evaluation.

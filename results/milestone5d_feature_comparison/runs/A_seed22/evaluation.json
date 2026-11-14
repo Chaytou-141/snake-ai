@@ -1,0 +1,32 @@
+{
+  "checkpoint_sha256": "17748eaadc51d6501feb99037e024c8fcd0c735bb33bcc3b6745526533f0e282",
+  "csv_sha256": "29ac323b1edecce1e12e8d8636451b60c557c42691dc400b2714163499f7eed1",
+  "metrics": {
+    "episodes": 100,
+    "average_score": 31.51,
+    "median_score": 31.0,
+    "minimum_score": 7,
+    "maximum_score": 59,
+    "average_episode_length": 552.41,
+    "collision_rate": 1.0,
+    "truncation_rate": 0.0,
+    "win_rate": 0.0,
+    "score_sd_within_evaluation": 11.555308369539581,
+    "weights_unchanged": true,
+    "observation_mode": "original11",
+    "input_dim": 11,
+    "feature_order": [
+      "danger_straight",
+      "danger_right",
+      "danger_left",
+      "moving_up",
+      "moving_down",
+      "moving_left",
+      "moving_right",
+      "food_left",
+      "food_right",
+      "food_above",
+      "food_below"
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "protocol_version": "5d-v1",
+  "research_question": "Do three static obstacle-distance features improve mean food score relative to the original 11 features?",
+  "hypothesis": "Model B may have a higher mean score, but benefit is not assumed. Report all three paired training-seed differences, including null or negative results.",
+  "primary_outcome": "Mean food items per greedy evaluation episode; aggregate as the mean of three independent training-seed means.",
+  "training_seeds": [
+    11,
+    22,
+    33
+  ],
+  "variants": {
+    "A": "original11",
+    "B": "distance14"
+  },
+  "run_order": [
+    [
+      "A",
+      11
+    ],
+    [
+      "B",
+      11
+    ],
+    [
+      "A",
+      22
+    ],
+    [
+      "B",
+      22
+    ],
+    [
+      "A",
+      33
+    ],
+    [
+      "B",
+      33
+    ]
+  ],
+  "evaluation_seed_start": 910000,
+  "evaluation_episodes": 100,
+  "training_seed_schedule": "200000 + training_seed * 1000 + zero_based_episode_index; shared within each A/B pair",
+  "distance_definition": "Consecutive free cells before current wall/body; tail occupied. Divide by max(board_width, board_height)-1.",
+  "base_training_config": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "replay_capacity": 50000,
+    "batch_size": 64,
+    "learning_starts": 1000,
+    "target_update_interval": 1000,
+    "gradient_clip_norm": 10,
+    "hidden_size": 128,
+    "epsilon_start": 1,
+    "epsilon_min": 0.05,
+    "epsilon_decay_steps": 50000,
+    "episodes": 500,
+    "max_environment_steps": 100000,
+    "checkpoint_interval_episodes": 100,
+    "cpu_threads": 1,
+    "environment": {
+      "width": 20,
+      "height": 20,
+      "max_steps": 10000,
+      "starvation_min_steps": 400,
+      "starvation_factor": 100
+    },
+    "rewards": {
+      "food": 10,
+      "collision": -10,
+      "movement": 0,
+      "win": 10
+    }
+  },
+  "analysis": {
+    "across_seed_sd": "sample standard deviation (n=3)",
+    "comparison": "B minus A paired by training seed",
+    "significance_testing": "none",
+    "checkpoint_selection": "final only; no seed or checkpoint selection"
+  },
+  "smoke": {
+    "training_seed": 77,
+    "evaluation_seed_start": 920000,
+    "evaluation_episodes": 5,
+    "episodes": 6,
+    "max_environment_steps": 256,
+    "learning_starts": 32,
+    "batch_size": 16
+  }
+}

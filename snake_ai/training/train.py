@@ -35,7 +35,7 @@ def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = 
     output.mkdir(parents=True)
     torch.set_num_threads(config.cpu_threads)
     initial_weights = [parameter.detach().clone() for parameter in agent.online.parameters()]
-    env = SnakeEnv(config.environment, config.rewards)
+    env = SnakeEnv(config.environment, config.rewards, observation_mode=config.observation_mode)
     prior_seeds = list(getattr(agent, "checkpoint_metadata", {}).get("training_seeds", []))
     training_seeds = prior_seeds.copy()
     rows = []
