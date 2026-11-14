@@ -793,3 +793,155 @@ is the pre-existing Pygame packaging deprecation. Earlier journal commit hashes
 refer to the historical local backup; the README now lists the equivalent hashes
 published after the authorised email rewrite. Milestone 5B stays uncommitted and
 is not pushed until reviewed.
+
+## Milestone 5C: following the formation of a trap
+
+### Why analyse earlier states?
+
+Milestone 5B found no safe next move at any of the 100 final collisions. That
+does not tell us when a trap formed or whether an earlier alternative would
+have avoided it. We therefore kept the same frozen model and examined every
+pre-move state in the same episodes, using `trap_analysis.py`. Before this work,
+we verified the 190-test suite and checkpointed 5B as `48709f81cbb2a970a7f4d389354d5b90d3514fcb`.
+The checkpoint was local at the start of Milestone 5C.
+
+### Immediate danger is a one-step question
+
+For each relative action, the existing engine predicts whether the next move
+would collide. `measure_state()` counts how many predictions are safe. Three
+means all available actions are legal now; zero means none is legal. It does
+not mean that three safe choices guarantee a successful long-term plan.
+
+We record the first movement with exactly two, one, and zero safe choices. We
+also count transitions that reduce choices and transitions back from one choice
+to two or three. A narrow corridor can lead to an open region, so a reduction
+is a measurement, not a diagnosis of a mistake.
+
+There were 1,704 consecutive runs of one-safe states; 1,628 later returned to
+at least two options, while 76 reached zero. Thus 95.54% of those runs recovered.
+At a different level, 1,628 of the 3,126 individual one-safe visits recovered
+on the very next move, or 52.08%. Naming the denominator prevents a misleading
+percentage. These are repeated states within episodes, not independent trials.
+
+### Measuring distance to an obstacle
+
+`free_cell_distance()` traces a ray until it encounters a wall or the current
+body. It counts free cells, excluding the starting head. On a 5 by 5 board,
+a lone head at (2,2) has two free cells to the right before the wall: (3,2)
+and (4,2). The next grid step is outside the board. An obstacle immediately
+adjacent to the head gives a distance of zero.
+
+This geometric ray treats the current body, including the tail, as static.
+The collision predictor still correctly allows a move into a departing tail.
+These answers can differ without a bug: one describes current geometry, while
+the other applies the moving-snake rule. Across the measured states, mean ray
+distances were 7.960 straight, 7.468 right, and 6.993 left free cells.
+
+### Breadth-First Search: exploring connected cells
+
+A grid can be viewed as a graph. Each free cell is a node, and an edge connects
+it to a free cell directly above, below, left, or right. `reachable_component()`
+uses Breadth-First Search (BFS): start with a queue containing the candidate
+head; remove the oldest queued cell, visit its unvisited free neighbours, and
+append those neighbours. A visited set prevents infinite loops. When the queue
+is empty, the visited set contains that whole connected region.
+
+For a candidate first move, we first ask the actual collision predictor. If it
+is illegal, reachable space is undefined (`null`). If legal, the old tail moves
+away unless the known food is eaten. The resulting old body is then blocked,
+while the candidate head is the BFS starting cell and counts as one reachable
+cell. Future food placement is not generated. Candidate actions that share
+the same obstacles reuse discovered components to avoid repeated search work.
+
+After that first step, BFS freezes the body. It does not move the snake along
+all paths, simulate future growth, or prove that a route can actually be followed
+by a long moving body. More connected cells can be useful information, but they
+are not a guaranteed measure of long-term safety.
+
+### A concrete warning about static space
+
+In seed 900045, move 152, candidate spaces were straight 384, right 1, left
+384. The network chose right. Static BFS showed a closed one-cell region, yet
+the next tail cell departed and provided a legal continuation. The episode
+lasted another 1,239 moves. A focused unit test now reproduces that geometry.
+Declaring a one-cell region to be certain death would have been wrong.
+
+This does not prove the network made an optimal decision either: we did not
+simulate the other policies. It shows why we need to distinguish an approximate
+measurement from a claim about the consequences of a choice.
+
+### What the full traces show
+
+All 100 episodes again matched Milestones 4 and 5B, including scores, rewards,
+lengths, and end flags. There are 63,728 pre-move states. The mean safe-action
+count is 2.551469; 60.366% of movements had three safe choices, 34.572% had two,
+4.905% had one, and 0.157% had none. The policy reduced next-state choices on
+8.01% of legal transitions. That number alone says nothing about mistakes.
+
+Before running, we defined low static space as at most 20 cells and a
+substantial space deficit as at least 20 cells below another safe candidate.
+There were 819 low-space moves, entered on 129 occasions, and 184 substantial
+deficit moves. Those thresholds make the calculation explicit; they are not
+claimed to be scientifically established safety cutoffs.
+
+Selected area and remaining episode moves had a pooled Pearson correlation
+of about 0.284. Pearson correlation summarises a linear association; it does
+not demonstrate cause. Later states often have longer bodies and less time
+remaining, and neighbouring observations are dependent. Longer episodes also
+contribute more data. The analysis is descriptive, without a significance claim.
+
+Near the end, options were narrower on average: the last-five-move mean was
+1.186 safe actions. The final legal move entered static area one in all 100
+episodes; 24 had a larger-area alternative, 23 with a gap of at least 20 cells.
+We cannot claim those alternatives would survive because we did not play them
+out. Earlier small regions sometimes reopened as the tail moved.
+
+### Three examples, not proof of a general cause
+
+We selected distinct examples using predefined descriptive roles. Seed 900034
+had the highest score (58); at move 1360 it selected 12 static cells over a
+328-cell alternative and collided 12 moves later. Seed 900045, also score 58,
+had the most substantial deficits, including the one-cell example that later
+escaped. Seed 900073 scored 57 and had 61 recoveries from one-safe runs; at
+move 476 it selected 29 cells over 342 and survived another 818 moves.
+
+These cases illustrate both narrowing and recovery. They do not prove that
+the 11-feature observation caused a particular collision or that a new feature
+would improve the model. The extra board information was recorded for analysis
+only and never supplied to the policy.
+
+### Why we did not add a three-move planner
+
+The optional short lookahead was omitted to keep this milestone focused. Even
+a three-move search would see only a short horizon and could miss deeper traps.
+If a hypothetical branch eats known food, subsequent food placement is unknown;
+a defensible lookahead would stop or mark uncertainty rather than invent a food
+location. No amount of unqualified short search would guarantee safety.
+
+### Saving full episodes economically
+
+`state_traces.jsonl.gz` streams one compact JSON object per move through gzip.
+It stores the full pre-state body once, along with the observation, Q-values,
+chosen action, geometry, reward/end information and actual post head/food/score.
+The full body is not duplicated in the CSVs. Small integer arrays hold plotting
+measurements, and `trap_events.csv` logs selected events without repeating bodies.
+The report documents nulls, coordinate conventions, units and remaining-time
+joins. A failed run keeps an `INCOMPLETE` marker instead of a verified report.
+
+The three Matplotlib charts show safe choices across complete example episodes,
+selected reachable space, and comparisons near each example's largest observed
+deficit. Markers keep isolated alternative values visible; missing collision
+candidates are gaps, not fake zero areas.
+
+### The next experiment remains a hypothesis
+
+Future work could pre-register a controlled baseline versus a geometry-informed
+observation design, with matched budgets, multiple training seeds, and fresh
+untouched evaluation seeds. That would test whether the proposed information
+actually helps. These already-inspected episodes should not be treated as a
+fresh test set for tuning a new model.
+
+The 18 focused tests and all 208 project tests pass. All 30 older saved files
+remain unchanged. No model, reward, observation, algorithm, playback or training
+implementation was changed, and no retraining or new agent was introduced.
+Milestone 5C is verified for the checkpoint `feat: add SnakeAI trap formation analysis`.

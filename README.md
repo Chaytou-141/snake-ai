@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback and 5B collision diagnostics complete; 5C not implemented |
+| 5 | Agent inspection and further analysis | 5A playback, 5B collision diagnostics, and 5C trap analysis complete |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -166,6 +166,7 @@ snake-ai/
     evaluation/
       __init__.py
       collision_diagnostics.py
+      trap_analysis.py
     models/
       __init__.py
       dqn.py
@@ -201,6 +202,7 @@ snake-ai/
     test_training.py
     test_trained_ai.py
     test_collision_diagnostics.py
+    test_trap_analysis.py
   configs/
     dqn.json
   results/
@@ -231,8 +233,11 @@ committed as `e0bd9cf7078ee886bf762019a94365f89d4eb575` with message
 173 passing tests and committed as `1babc0231f249d8400447ec3f7d74cd765bd4d63`
 (`feat: add trained SnakeAI playback visualisation`). These are the published
 hashes after the authorised commit-email rewrite; contents and original dates
-were preserved. Generated checkpoints remain local and ignored. Milestone 5B
-changes remain uncommitted for review.
+were preserved. Generated checkpoints remain local and ignored. Milestone 5B was
+verified with 190 passing tests, checked against the original 100-episode results,
+and committed as `48709f81cbb2a970a7f4d389354d5b90d3514fcb`
+(`feat: add SnakeAI collision diagnostics`). Milestone 5C is verified with 208
+passing tests for the checkpoint `feat: add SnakeAI trap formation analysis`.
 
 ## Milestone 2: headless environment
 
@@ -920,3 +925,117 @@ these observations do not establish a particular cause of earlier trapping.
 The next investigation should examine earlier planning decisions under a
 predefined analysis, with future model comparisons using fresh evaluation seeds
 and multiple training seeds. No improvements are implemented in this milestone.
+
+## Milestone 5C: trap formation and future safety analysis
+
+This read-only analysis measures **every pre-move state**, rather than only the
+last 30 moves. It reuses the collision diagnostics' actual greedy moves and the
+engine's immediate-collision predictor. The policy still receives its original
+11 features; diagnostic geometry is never used to select actions.
+
+```powershell
+.\.venv\Scripts\python.exe -m snake_ai.evaluation.trap_analysis
+
+# Existing output is preserved; use a new directory for a repeat.
+.\.venv\Scripts\python.exe -m snake_ai.evaluation.trap_analysis --output results/milestone5c_repeat
+```
+
+The command requires the local trained checkpoint and the saved Milestone 4 and
+5B reference files. It checks configuration, hashes, exact seeds, per-episode
+outcomes, and aggregate metrics against both milestones. An `INCOMPLETE` marker
+remains if a run fails or reproduction does not pass; no verified analysis report
+is issued for a mismatch. Earlier results are never overwritten.
+
+### What the geometry means
+
+- **Immediate options:** 0–3 safe relative actions using the engine's existing
+  tail-vacating rule. Logs identify the first exact two-, one-, and zero-safe
+  states, transitions that reduce options, and recovery from one-safe runs.
+- **Obstacle distance:** the number of free cells on the straight/right/left
+  ray before the first wall or current body cell. The tail counts as a static
+  obstacle here, so distance zero can coexist with a legal tail-vacating move.
+- **Candidate reachable space:** after a legal first move, BFS counts connected
+  four-neighbour cells, including the new head. The tail leaves unless known
+  food is eaten; then the resulting body is frozen for flood fill. No future
+  food is sampled. A collision candidate has `null` space rather than zero.
+
+Static space is not a dynamic survival prediction. It ignores subsequent tail
+movement, future growth, and movement-sequence constraints. A larger region is
+not always a better action. The optional three-move lookahead was not implemented;
+even that horizon could miss a deeper trap or encounter unknown future food.
+
+### Measured results
+
+All **100 episodes** on seeds 900000–900099 reproduced Milestone 4 and 5B exactly:
+mean score **34.81**, median **37**, maximum **58**, mean moves **637.28**, and
+100 collisions. The full trace contains **63,728 moves** and averages **2.551469**
+immediately safe actions per move.
+
+| Safe actions before move | Count | Percentage |
+| --- | ---: | ---: |
+| 0 | 100 | 0.157% |
+| 1 | 3,126 | 4.905% |
+| 2 | 22,032 | 34.572% |
+| 3 | 38,470 | 60.366% |
+
+There were **1,704 consecutive one-safe runs**: **1,628 recovered** to at least
+two options (**95.54%**), while 76 transitioned to zero options. At the individual
+visit level, 1,628 of 3,126 one-safe states recovered on their very next step
+(52.08%). The different denominators answer different questions. The selected
+move reduced next-state options on **5,094 of 63,628** nonterminal transitions
+(**8.01%**); this does not label those decisions mistakes.
+
+Mean static obstacle distances were **7.960 straight**, **7.468 right**, and
+**6.993 left** free cells. Using thresholds fixed before the run, selected space
+was **at most 20 cells** on **819 legal moves (1.287%)**, entered on 129 occasions.
+The selected action had **at least 20 fewer reachable cells** than the best safe
+candidate on **184 moves (0.289%)**. Pooled correlation between selected static
+space and remaining moves was **r = 0.284**. This is descriptive: adjacent states
+are dependent, longer episodes have more weight, and body length/episode phase
+can confound the association. It is not evidence that more space causes survival.
+
+In the last five moves, mean immediate options were **1.186**, compared with
+**2.551** overall. On every last legal move, selected static space was one cell;
+24 episodes had a larger-space alternative then, including 23 with a gap of at
+least 20 cells. These alternatives were not played out, so later survival is
+unknown. The decline describes an aggregate pattern, not an irreversible trap
+criterion for every individual state.
+
+Three predefined example roles illustrate the limits:
+
+- **Seed 900034**, score 58: at move 1360 the agent chose right with 12 reachable
+  cells versus 328 for left; collision followed 12 moves later.
+- **Seed 900045**, score 58: at move 152 it chose right with one static cell
+  versus 384 for straight/left, yet survived **1,239 more moves**. The moving tail
+  immediately provided a legal continuation. Area one is not guaranteed death.
+- **Seed 900073**, score 57: at move 476 it chose left with 29 cells versus 342
+  for right, then continued **818 moves**. Across this episode, 61 one-safe runs
+  recovered before the eventual collision.
+
+### Saved evidence and tests
+
+Files are under `results/milestone5c_trap_analysis/`:
+
+- [Report and schema](results/milestone5c_trap_analysis/report.md) and `summary.json`.
+- `episodes.csv`: outcomes, first safe-count occurrences, recoveries, option
+  reductions, low-space visits/entries, and substantial-deficit counts.
+- `trap_events.csv`: selected event rows without duplicating full bodies.
+- `state_traces.jsonl.gz`: streamed compressed JSON, one pre-state body per
+  move, original observations/Q-values/actions, geometry, reward/end information,
+  and actual post head/food/score. Null denotes an inapplicable candidate or
+  terminal post-safe count. Array action order is straight/right/left.
+- [Safe actions](results/milestone5c_trap_analysis/safe_actions.png),
+  [reachable space](results/milestone5c_trap_analysis/reachable_space.png), and
+  [action comparison](results/milestone5c_trap_analysis/action_comparison.png)
+  charts, labelled with actual example seeds and episodes.
+
+**18 focused tests and 208 total tests pass**, with the existing Pygame packaging
+warning. Run focused tests with
+`.\.venv\Scripts\python.exe -m pytest tests/test_trap_analysis.py -q`.
+All 30 older saved files and the model remain unchanged. No dependencies,
+training, agent, observation, reward, architecture, or playback changes were made.
+
+The next controlled experiment should predefine a baseline versus a
+geometry-informed observation hypothesis, matched training budgets, independent
+training seeds, and fresh untouched evaluation seeds. This analysis motivates
+testing that hypothesis; it does not establish that adding features will help.
