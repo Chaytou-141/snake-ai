@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D feature comparison complete |
+| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D feature comparison complete; 5E experiment below |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -1180,4 +1180,105 @@ configurations, and aggregate calculations were verified independently.
 All 31 tracked historical artifacts match Git, and the original seed-7 final
 checkpoint SHA-256 remains unchanged. The original model was not retrained, no
 historical results were regenerated, and no dependencies were added. Milestone
-5D remains uncommitted and has not been pushed.
+5D was initially left uncommitted for review, then saved at the start of 5E
+(see the checkpoint below). It has not been pushed.
+
+## Milestone 5E: controlled food-distance experiment
+
+5D was saved as `1f6e9942efc211ea36e4a6e57b78ad0caca705c3` before 5E development.
+Its historical results and checkpoints are preserved. To reproduce 5D with its
+frozen source checks, use that commit and the recorded dependency versions.
+
+The predefined primary hypothesis is that precise current-food displacement
+improves mean greedy food score under matched environment-step budgets.
+Secondary hypotheses concern median score, survival and variability between
+independent training seeds. Improvement is a hypothesis, not an assumption.
+
+Model A retains `original11`: **11 -> 128 -> 128 -> 3**. Model B uses `food13`:
+**13 -> 128 -> 128 -> 3**, appending exactly these float32 features:
+
+- `food_dx = (food_x - head_x) / (board_width - 1)`.
+- `food_dy = (food_y - head_y) / (board_height - 1)`.
+
+Both lie in [-1, 1]; positive means right/down. Only the current visible food
+is read. No food (a full-board terminal state) produces zero offsets. All
+original features retain their order and meaning; `original11` remains the
+default and `distance14` is unchanged. There is no future-spawn information.
+
+Protocol [5e-v1](configs/food_distance_v1.json) fixes paired training seeds
+**44/55/66**, fresh initial models and exactly **40,000 moves per run**. The
+existing trainer's episode safety ceiling is set to 40,000: because each
+episode requires at least one move, it cannot stop training before the move
+budget. An incomplete last episode is logged separately. Hyperparameters,
+rewards and termination rules retain their established values.
+
+Every final checkpoint is evaluated greedily on **930000-930099**. This range
+was approved before training because the initially requested 920000 range
+overlapped five 5D smoke seeds. Development smoke uses seed88 and evaluation
+seeds **940000-940004**, with temporary training files and no scientific claims.
+Food episode seeds are `300000 + 5000 * training_seed + episode_index`, paired
+between A/B and with disjoint possible blocks across training seeds. Python,
+PyTorch, replay and exploration seeds follow the existing deterministic CPU
+setup. Architectures consume initialisation randomness differently, and B
+adds 256 input parameters; exact cross-platform reproducibility is not claimed.
+
+```powershell
+python -m pytest tests/test_food_distance.py tests/test_feature_comparison.py -q
+python -m snake_ai.experiments.feature_comparison --protocol configs/food_distance_v1.json --smoke
+python -m snake_ai.experiments.feature_comparison --protocol configs/food_distance_v1.json
+# Complete an individual missing run, preserving successful runs:
+python -m snake_ai.experiments.feature_comparison --protocol configs/food_distance_v1.json --model B --seed 55
+```
+
+Outputs default to `results/milestone5e_food_distance/`. Source/software and
+protocol hashes are frozen, completed run hashes are verified, and ambiguous
+partial outputs are preserved for review. Checkpoints remain excluded from Git.
+Results use three independent training replications per model, sample SD of
+their mean scores, and paired B-minus-A differences. The 300 evaluation
+episodes are not 300 independent training replications. There is no tuning,
+best-checkpoint selection or significance testing.
+
+### Actual 5E findings
+
+All runs used exactly **40,000 moves**, **39,001 optimiser updates** and final
+epsilon **0.24**. Each final checkpoint completed 100 greedy evaluation episodes.
+
+| Model | Seed | Completed training episodes | Training seconds | Mean evaluation score |
+|---|---:|---:|---:|---:|
+| A: original11 | 44 | 579 | 86.53 | 28.64 |
+| B: food13 | 44 | 588 | 86.80 | 27.41 |
+| A | 55 | 566 | 85.09 | 25.94 |
+| B | 55 | 582 | 79.67 | 30.73 |
+| A | 66 | 583 | 77.81 | 24.21 |
+| B | 66 | 572 | 118.23 | 32.29 |
+
+Across three training-seed means, A scored **26.26 (sample SD 2.23)** and B
+**30.14 (sample SD 2.49)**. Paired B-minus-A differences were **-1.23, +4.79,
++8.08**, averaging **+3.88**. B improved on **two of three** seeds: a tentative
+average advantage for food-distance features in this protocol, with mixed
+paired outcomes. Three seeds do not establish general superiority.
+
+B's evaluation medians were higher on all three pairs, but the hypothesis of
+lower between-training-seed variability was not supported. Mean survival was
+625.09 moves for A and 458.39 for B. A/seed66 had 37% truncations, explaining
+its long episodes despite lower food scores; all other runs had 100% collision
+termination. No evaluation episode ended in a win. Longer survival alone does
+not establish better food collection.
+
+The [full report](results/milestone5e_food_distance/report.md) includes per-run
+medians, score ranges, survival and termination rates, raw-data locations and
+reproduction details. Charts:
+
+- [Average score](results/milestone5e_food_distance/average_score.png).
+- [Training curves](results/milestone5e_food_distance/training_performance.png).
+- [Episode length](results/milestone5e_food_distance/episode_length.png).
+
+Validation: **150 focused tests plus one chart/report test passed**; both smoke
+cycles passed with 225 finite updates each. The full suite ran once after
+implementation: **272 passed, 0 failed**, one dependency deprecation warning.
+An independent read-only audit verified all 600 evaluation rows, 72 run-artifact
+hashes, configurations, budgets, seed schedules and aggregate calculations.
+All **126 pre-existing result/checkpoint files** remain byte-for-byte identical
+to their pre-5E SHA-256 manifest. No successful training/evaluation runs were
+repeated, no historical results were regenerated, and the original seed-7 model
+was not retrained. 5E remains uncommitted; nothing was pushed.

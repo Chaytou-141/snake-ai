@@ -1095,3 +1095,67 @@ Final validation: 21 focused comparison tests passed, both development smoke
 cycles passed, and the full suite ran once with 229 passing tests and no
 failures (one dependency deprecation warning). Saved raw records reproduced
 the reported metrics without repeating training or evaluation.
+
+## Milestone 5E: relative food positions and matched budgets
+
+The 11 original features say which direction contains food but not how far
+away it is. `food13` adds horizontal and vertical displacement from the head.
+On our 20-by-20 board, food five cells to the right and two cells above gives
+dx=5/19 and dy=-2/19. Dividing by each board dimension minus one keeps values
+between -1 and 1, including on rectangular boards. Coordinates increase
+downward, so negative dy means above. These are world-axis offsets, not
+offsets rotated into the snake's movement direction.
+
+This is observation design: the agent receives more precision about something
+already visible to a human. It receives no future food positions or rewards.
+More information might help distinguish useful actions, but it also changes
+the input layer and learning problem. The 5D results already showed why extra
+features should be tested rather than assumed beneficial. Both original and
+geometry encoders remain available, preserving previous checkpoint behaviour.
+
+5D matched episode counts but produced different numbers of learning steps.
+5E asks a new question with exactly 40,000 moves per model. Both agents reach
+the same epsilon progress and update count; their experiences, completed
+episodes and wall-clock times still differ. A final incomplete episode is
+not counted as completed. We reuse the existing trainer and DQN algorithm.
+
+Before training, we fixed seeds44/55/66, the food13 hypothesis and unchanged
+hyperparameters in 5e-v1. A/B share an episode-food-seed schedule within each
+pair. Different actions can still consume randomness differently, so paired
+seeds are comparable initial conditions, not identical trajectories. The
+same seed also does not create identical hidden weights across input sizes.
+
+The requested evaluation seeds overlapped earlier smoke validation. We
+identified that before training and obtained approval to reserve fresh
+930000-930099 for final evaluation, with 940000-940004 reserved for smoke.
+Final outcomes will not be used to adjust hyperparameters or select seeds.
+We compare all three paired training runs and their variability, treating
+three training seeds as exploratory evidence. Exact reproducibility across
+software versions and operating systems is not guaranteed.
+
+### What the measured 5E outcomes teach us
+
+Both variants reached 40,000 interactions and 39,001 updates for every seed.
+A's scores were 28.64, 25.94 and 24.21; B's were 27.41, 30.73 and 32.29.
+The average increased from 26.26 to 30.14, but B lost the seed44 pair. That
+supports a tentative average benefit, not a claim that food distance reliably
+helps every training run. Its sample SD across seed means was slightly higher
+(2.49 versus 2.23), so extra information did not reduce observed variability.
+
+B improved median food score on all pairs, yet it did not consistently survive
+longer. A/seed66 survived 1,023.21 moves on average with 37% truncations while
+scoring less food. An agent can remain alive without efficiently pursuing food.
+This is why our primary outcome is food score and secondary outcomes provide
+context rather than replacing it after results are known.
+
+Matched interactions also did not match completed episodes: counts ranged from
+566 to 588. Both agents reached epsilon0.24, but different trajectories filled
+their replay buffers with different experiences. Measured training times also
+varied; matching update counts does not eliminate system-load differences.
+
+The full suite ran once after implementation: 272 passed with no failures
+and one dependency deprecation warning. Focused checks and both smoke cycles
+passed before final training. Saved-data checks reproduced the metrics and
+confirmed all 126 historical files unchanged without rerunning experiments.
+The next experiment would need its own hypothesis, training seeds and fresh
+evaluation seeds. We stop here, preserving the mixed outcomes for review.

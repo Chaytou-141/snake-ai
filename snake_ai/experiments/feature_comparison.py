@@ -1,4 +1,4 @@
-"""Run the fixed 5D protocol, validate separately, and preserve successful runs."""
+"""Run fixed observation protocols, validate separately, and preserve successful runs."""
 
 import argparse
 import csv
@@ -47,6 +47,23 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def load_protocol(path: Path = DEFAULT_PROTOCOL) -> dict:
     protocol = json.loads(Path(path).read_text(encoding="utf-8"))
+    if protocol.get("protocol_version") == "5e-v1":
+        expected = json.loads((Path(__file__).resolve().parents[2]/"configs/food_distance_v1.json").read_text(encoding="utf-8"))
+        if protocol != expected:
+            raise ValueError("Protocol 5e-v1 must match the predeclared food-distance experiment")
+        defaults = TrainingConfig().to_dict()
+        omitted = {"seed","training_seed_start","evaluation_seed_start","evaluation_episodes","random_policy_seed_start"}
+        base = {key:value for key,value in defaults.items() if key not in omitted}
+        base.update(episodes=40000,max_environment_steps=40000)
+        if protocol["base_training_config"] != base:
+            raise ValueError("Food comparison must preserve hyperparameters and use exactly 40000 moves")
+        if (protocol["training_seeds"] != [44,55,66] or protocol["variants"] != {"A":"original11","B":"food13"}
+                or protocol["evaluation_seed_start"] != 930000 or protocol["evaluation_episodes"] != 100
+                or protocol["run_order"] != [[m,s] for s in (44,55,66) for m in ("A","B")]
+                or protocol["smoke"] != {"training_seed":88,"evaluation_seed_start":940000,
+                    "evaluation_episodes":5,"episodes":256,"max_environment_steps":256,"learning_starts":32,"batch_size":16}):
+            raise ValueError("Unexpected food comparison variants, seeds or smoke protocol")
+        return protocol
     if (protocol["protocol_version"] != "5d-v1" or protocol["training_seeds"] != [11,22,33]
             or protocol["variants"] != {"A":"original11", "B":"distance14"}
             or protocol["evaluation_seed_start"] != 910000 or protocol["evaluation_episodes"] != 100
@@ -71,7 +88,7 @@ def training_config(protocol: dict, model: str, seed: int, *, smoke: bool = Fals
     if not smoke and seed not in protocol["training_seeds"]:
         raise ValueError("Final training seed is not in the fixed protocol")
     config = TrainingConfig.from_dict({**protocol["base_training_config"], "seed":seed,
-        "training_seed_start":200000 + seed*1000, "evaluation_seed_start":protocol["evaluation_seed_start"],
+        "training_seed_start":(300000 + seed*5000 if protocol["protocol_version"]=="5e-v1" else 200000 + seed*1000), "evaluation_seed_start":protocol["evaluation_seed_start"],
         "evaluation_episodes":protocol["evaluation_episodes"], "observation_mode":protocol["variants"][model]})
     if smoke:
         if seed != protocol["smoke"]["training_seed"]:
@@ -88,7 +105,8 @@ def prepare_output(output: Path, protocol: dict) -> tuple[Path, dict]:
         "python":platform.python_version(), "platform":platform.platform(), "device":"cpu",
         "dependencies":{name:version(name) for name in ("torch","pygame","matplotlib","numpy")},
         "deterministic_algorithms":True, "cpu_threads":1,
-        "seed_rule":"Python and torch: seed; replay: seed+1; exploration: seed+2; food: 200000+1000*seed+episode_index"}
+        "seed_rule":"Python and torch: seed; replay: seed+1; exploration: seed+2; food: " +
+            ("300000+5000*seed+episode_index" if protocol["protocol_version"]=="5e-v1" else "200000+1000*seed+episode_index")}
     if output.exists():
         if not (output/"protocol.json").exists() or not (output/"metadata.json").exists():
             raise FileExistsError("Output is not a recognised experiment directory")
@@ -156,8 +174,9 @@ def run_smoke(protocol: dict, output: Path) -> dict:
             findings[model] = {"input_dim":config.input_dim, "updates":training["optimiser_updates_this_run"],
                 "weights_changed":True, "checkpoint_loaded":True, "evaluation_episodes":len(rows),
                 "evaluation_weights_unchanged":True}
-    saved = {"passed":True, "protocol_sha256":metadata["protocol_sha256"], "development_seed":77,
-             "development_evaluation_seeds":list(range(920000,920005)), "findings":findings,
+    saved = {"passed":True, "protocol_sha256":metadata["protocol_sha256"], "development_seed":protocol["smoke"]["training_seed"],
+             "development_evaluation_seeds":list(range(protocol["smoke"]["evaluation_seed_start"],
+                 protocol["smoke"]["evaluation_seed_start"]+protocol["smoke"]["evaluation_episodes"])), "findings":findings,
              "interpretation":"Technical validation only; not a scientific performance result"}
     write_json(marker,saved)
     print(json.dumps(saved,indent=2),flush=True)
@@ -189,8 +208,11 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
         training = run_training(config,training_dir,make_charts=False)
     if training["status"] not in ("episode_budget","environment_step_cap"):
         raise RuntimeError(f"Preserved incomplete training {model}/{seed}: {training['status']}")
-    if training["environment_steps_this_run"]>100000 or training["completed_episodes_this_run"]>500:
+    if (training["environment_steps_this_run"]>config.max_environment_steps
+            or training["completed_episodes_this_run"]>config.episodes):
         raise ValueError("Training budget exceeded")
+    if protocol["protocol_version"]=="5e-v1" and training["environment_steps_this_run"]!=40000:
+        raise RuntimeError("Incomplete fixed-step run preserved; do not evaluate or silently restart")
     with (training_dir/"updates.csv").open(newline="") as handle:
         losses = [float(row["loss"]) for row in csv.DictReader(handle)]
     if not losses or not all(torch.isfinite(torch.tensor(losses))):
@@ -210,7 +232,7 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
         if (case/"evaluation.csv").exists():
             raise FileExistsError("Incomplete evaluation output preserved; review rather than overwrite")
         eval_rows, metrics = evaluation_rows(agent,model,seed)
-        if len(eval_rows)!=100 or [r["evaluation_seed"] for r in eval_rows] != list(range(910000,910100)):
+        if len(eval_rows)!=100 or [r["evaluation_seed"] for r in eval_rows] != list(range(config.evaluation_seed_start,config.evaluation_seed_start+config.evaluation_episodes)):
             raise ValueError("Evaluation did not use all 100 reserved seeds")
         if digest(checkpoint) != checkpoint_hash:
             raise RuntimeError("Evaluation changed checkpoint bytes")
@@ -230,8 +252,8 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
     return result
 
 
-def compare_results(results: list[dict]) -> dict:
-    expected = {(model,seed) for model in ("A","B") for seed in (11,22,33)}
+def compare_results(results: list[dict], seeds=(11,22,33)) -> dict:
+    expected = {(model,seed) for model in ("A","B") for seed in seeds}
     if len(results)!=6 or {(row["model"],row["training_seed"]) for row in results} != expected:
         raise ValueError("Comparison requires exactly all six completed model/seed pairs")
     grouped = {model:{row["training_seed"]:row["average_score"] for row in results if row["model"]==model}
@@ -239,7 +261,7 @@ def compare_results(results: list[dict]) -> dict:
     variants = {model:{"mean_of_training_seed_means":statistics.mean(values.values()),
                       "sd_across_training_seed_means":statistics.stdev(values.values()), "training_replications":3}
                 for model,values in grouped.items()}
-    differences = {str(seed):grouped["B"][seed]-grouped["A"][seed] for seed in (11,22,33)}
+    differences = {str(seed):grouped["B"][seed]-grouped["A"][seed] for seed in seeds}
     values = list(differences.values())
     return {"variants":variants, "paired_differences_B_minus_A":differences,
         "mean_paired_difference":statistics.mean(values),
@@ -249,11 +271,12 @@ def compare_results(results: list[dict]) -> dict:
         "interpretation":"Three independent training seeds per variant; preliminary descriptive comparison, no significance tests. 300 evaluation episodes are not 300 training replications."}
 
 
-def create_charts(output: Path, results: list[dict]) -> None:
+def create_charts(output: Path, results: list[dict], protocol: dict | None = None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    seeds = [11,22,33]
+    seeds = protocol["training_seeds"] if protocol else [11,22,33]
+    food = protocol is not None and protocol["protocol_version"]=="5e-v1"
     by_pair = {(row["model"],row["training_seed"]):row for row in results}
     colors = {"A":"#447da8","B":"#d48442"}
     for filename,metric,title,ylabel in (("average_score","average_score","Greedy score on 100 fresh seeds","Mean food score"),
@@ -261,7 +284,7 @@ def create_charts(output: Path, results: list[dict]) -> None:
         fig,ax = plt.subplots(figsize=(8,4.5),constrained_layout=True)
         for model,offset in (("A",-0.18),("B",0.18)):
             bars=ax.bar([index+offset for index in range(3)],[by_pair[model,seed][metric] for seed in seeds],
-                        width=.34,color=colors[model],label=f"{model}: {11 if model=='A' else 14} features")
+                        width=.34,color=colors[model],label=f"{model}: {11 if model=='A' else (13 if food else 14)} features")
             ax.bar_label(bars,fmt="%.2f",padding=3)
         ax.set(xticks=range(3),xticklabels=seeds,xlabel="Independent training seed",ylabel=ylabel,title=title)
         ax.margins(y=.2);ax.legend();fig.savefig(output/f"{filename}.png",dpi=150);plt.close(fig)
@@ -272,11 +295,14 @@ def create_charts(output: Path, results: list[dict]) -> None:
                 rows=[row for row in csv.DictReader(handle) if row["episode_complete"]=="True"]
             scores=[float(row["score"]) for row in rows]
             rolling=[statistics.mean(scores[max(0,index-24):index+1]) for index in range(len(scores))]
-            axis.plot(range(1,len(rolling)+1),rolling,label=f"seed {seed}")
-        axis.set(title=f"Model {model}",xlabel="Completed training episode",ylabel="Rolling mean food score (up to 25 episodes)")
+            axis.plot([int(row["environment_steps"]) for row in rows] if food else range(1,len(rolling)+1),rolling,label=f"seed {seed}")
+        axis.set(title=f"Model {model}",xlabel="Environment interactions" if food else "Completed training episode",ylabel="Rolling mean food score (up to 25 episodes)")
         axis.legend();axis.grid(alpha=.2)
-    fig.suptitle("Training includes exploration; equal episode budgets do not imply equal steps")
+    fig.suptitle("Matched 40,000-step training; rolling scores exclude incomplete episodes" if food else
+                 "Training includes exploration; equal episode budgets do not imply equal steps")
     fig.savefig(output/"training_performance.png",dpi=150);plt.close(fig)
+    if food:
+        return
     fig,ax=plt.subplots(figsize=(7,4.5),constrained_layout=True)
     for index,model in enumerate(("A","B")):
         means=[by_pair[model,seed]["average_score"] for seed in seeds]
@@ -347,20 +373,99 @@ def write_report(output: Path, results: list[dict], comparison: dict) -> None:
         handle.write("\n".join(lines))
 
 
+def write_food_report(output: Path, results: list[dict], comparison: dict) -> None:
+    lines = ["# Milestone 5E: controlled food-distance experiment", "",
+        "## Predeclared protocol", "",
+        "Primary hypothesis: adding normalised food displacement improves mean greedy food score. "
+        "Secondary hypotheses: improved median score/survival and lower between-training-seed score variability. "
+        "These hypotheses were frozen before training, with no tuning or checkpoint selection.", "",
+        "A: original11, 11 -> 128 -> 128 -> 3. B: food13, 13 -> 128 -> 128 -> 3. "
+        "The first 11 features and the existing distance14 mode are unchanged. B appends "
+        "dx=(food_x-head_x)/(width-1), dy=(food_y-head_y)/(height-1). Positive means right/down; "
+        "float32 offsets lie in [-1,1]. Only current visible food is used; absent food yields zeros.", "",
+        "Training seeds 44/55/66; exactly 40,000 interactions per fresh CPU run. The existing episode "
+        "loop uses a 40,000-episode safety ceiling which cannot end a run before 40,000 moves. "
+        "Incomplete last episodes are excluded from completed-episode statistics. Adam 0.0005, gamma .99, "
+        "batch64, replay50000, warmup1000, target every1000 optimiser updates, clip10, epsilon1 to .05 "
+        "over50000 moves; rewards and termination rules unchanged.", "",
+        "All final checkpoints are evaluated greedily on 100 paired seeds 930000-930099. "
+        "Before experiments, the user approved replacing the requested 920000 range because five of "
+        "those seeds were already used by the 5D smoke test. Development smoke uses seed88 and "
+        "940000-940004 in temporary directories, separate from final findings.", "",
+        "## Actual run budgets and primary results", "",
+        "| Model | Seed | Moves | Completed episodes | Updates | Seconds | Mean score |",
+        "|---|---:|---:|---:|---:|---:|---:|"]
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['training_environment_steps']} | "
+            f"{r['completed_training_episodes']} | {r['optimiser_updates']} | {r['training_duration_seconds']:.2f} | "
+            f"{r['average_score']:.2f} |")
+    lines += ["", "## Secondary outcomes", "",
+        "| Model | Seed | Median | Min | Max | Mean moves | Score SD within eval | Collision | Truncation | Win |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['median_score']:.2f} | {r['minimum_score']} | "
+            f"{r['maximum_score']} | {r['average_episode_length']:.2f} | {r['score_sd_within_evaluation']:.2f} | "
+            f"{r['collision_rate']:.1%} | {r['truncation_rate']:.1%} | {r['win_rate']:.1%} |")
+    lines += ["", "## Independent training-seed comparison", ""]
+    for model,v in comparison['variants'].items():
+        lines.append(f"- {model}: {v['mean_of_training_seed_means']:.2f} mean score; "
+                     f"{v['sd_across_training_seed_means']:.2f} sample SD across three training-seed means.")
+    differences = comparison['paired_differences_B_minus_A']
+    higher = sum(value>0 for value in differences.values())
+    lines += ["", f"Paired B minus A: {differences}. Mean paired difference: "
+        f"{comparison['mean_paired_difference']:.2f}. B outperformed A on {higher}/3 training seeds.", "",
+        "Evidence is descriptively consistent with the primary hypothesis in this protocol." if higher==3 else
+        "The primary hypothesis was not consistently supported across all three training seeds.", "",
+        "Secondary hypothesis summaries (means across the three training runs):", ""]
+    for model in ('A','B'):
+        group=[r for r in results if r['model']==model]
+        lines.append(f"- {model}: mean of evaluation medians {statistics.mean(r['median_score'] for r in group):.2f}; "
+                     f"mean episode length {statistics.mean(r['average_episode_length'] for r in group):.2f} moves.")
+    lines += ["", "## Reproducibility and limits", "",
+        "Python/torch seed=s, replay=s+1, exploration=s+2; food episode seed=300000+5000*s+episode_index. "
+        "Each training seed has its own disjoint possible food-seed block; A/B share initial conditions "
+        "but consume randomness differently along different trajectories. Deterministic CPU algorithms "
+        "and one thread are used; exact cross-platform/version reproducibility is not guaranteed. "
+        "Input size changes initialisation draws; B adds 256 parameters (18,691 vs A's 18,435). "
+        "Matched moves, updates and epsilon progress do not imply identical wall-clock time or replay experience.", "",
+        "Three independent training seeds provide exploratory evidence only. The 300 evaluation episodes "
+        "per variant are not 300 independent training replications. No significance tests, tuning or best-seed "
+        "selection are performed. Survival alone can reflect starvation/truncation rather than food efficiency. "
+        "No universal superiority claim is justified. Future work requires a separately predeclared experiment "
+        "with independent seeds; these inspected evaluation outcomes must not become tuning data.", "",
+        "## Artifacts and reproduction", "",
+        "Each runs/<model>_seed<seed>/ directory contains configuration, training CSVs/summary, ignored "
+        "checkpoints, all 100 evaluation rows, and integrity hashes. Root protocol.json and metadata.json "
+        "freeze methodology/software/source; per_seed_summary.csv and comparison_summary.json preserve aggregates. "
+        "Earlier artifacts are preserved without regeneration.", "",
+        "Run focused tests, then `python -m snake_ai.experiments.feature_comparison "
+        "--protocol configs/food_distance_v1.json --smoke`; remove --smoke for all final runs. "
+        "Use --model A --seed 44 for an individual run, or --aggregate-only to read completed runs. "
+        "Successful runs are hashed and reused, never retrained; partial failures are preserved for review. "
+        "Use the recorded source version/software for historical reproduction; source drift is rejected.", "",
+        "![Average score](average_score.png)", "![Training curves](training_performance.png)",
+        "![Episode length](episode_length.png)", ""]
+    with (output/'report.md').open('x',encoding='utf-8') as handle:
+        handle.write('\n'.join(lines))
+
+
 def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
     output,metadata=prepare_output(output,protocol)
     if not all((output/"runs"/f"{model}_seed{seed}"/"complete.json").exists() for model,seed in protocol["run_order"]):
         print("Comparison waits for all six completed runs.",flush=True)
         return None
     results=[run_one(protocol,output,model,seed) for model,seed in protocol["run_order"]]
-    comparison=compare_results(results)
+    comparison=compare_results(results,protocol["training_seeds"])
     if (output/"comparison_summary.json").exists():
         if json.loads((output/"comparison_summary.json").read_text()) != comparison:
             raise ValueError("Stored aggregate differs")
         return comparison
     write_csv(output/"per_seed_summary.csv",[{key:value for key,value in row.items() if key!='feature_order'} for row in results])
-    create_charts(output,results)
-    write_report(output,results,comparison)
+    create_charts(output,results,protocol)
+    if protocol["protocol_version"]=="5e-v1":
+        write_food_report(output,results,comparison)
+    else:
+        write_report(output,results,comparison)
     write_json(output/"comparison_summary.json",comparison)
     print(json.dumps(comparison,indent=2),flush=True)
     return comparison
@@ -369,13 +474,15 @@ def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
 def main() -> None:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protocol",type=Path,default=DEFAULT_PROTOCOL)
-    parser.add_argument("--output",type=Path,default=DEFAULT_OUTPUT)
+    parser.add_argument("--output",type=Path)
     parser.add_argument("--smoke",action="store_true")
     parser.add_argument("--model",choices=["A","B"])
     parser.add_argument("--seed",type=int)
     parser.add_argument("--aggregate-only",action="store_true")
     args=parser.parse_args()
     protocol=load_protocol(args.protocol)
+    if args.output is None:
+        args.output=Path("results/milestone5e_food_distance") if protocol["protocol_version"]=="5e-v1" else DEFAULT_OUTPUT
     if args.smoke:
         if args.model is not None or args.seed is not None or args.aggregate_only:
             parser.error("--smoke is separate from final model/seed selection")

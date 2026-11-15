@@ -14,6 +14,7 @@ FEATURE_NAMES = (
 )
 _CLOCKWISE = (Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT)
 DISTANCE_FEATURE_NAMES = ("distance_straight", "distance_right", "distance_left")
+FOOD_DISTANCE_FEATURE_NAMES = ("food_dx", "food_dy")
 
 
 def feature_names(observation_mode: str = "original11") -> tuple[str, ...]:
@@ -21,7 +22,9 @@ def feature_names(observation_mode: str = "original11") -> tuple[str, ...]:
         return FEATURE_NAMES
     if observation_mode == "distance14":
         return FEATURE_NAMES + DISTANCE_FEATURE_NAMES
-    raise ValueError("observation_mode must be 'original11' or 'distance14'")
+    if observation_mode == "food13":
+        return FEATURE_NAMES + FOOD_DISTANCE_FEATURE_NAMES
+    raise ValueError("observation_mode must be 'original11', 'distance14', or 'food13'")
 
 
 def relative_direction(direction: Direction, action: int) -> Direction:
@@ -65,6 +68,7 @@ class SnakeEnv:
 
     Observations are fresh array('f') objects. The default 11 binary features
     are unchanged; distance14 appends three normalised static distances.
+    food13 appends signed horizontal/vertical offsets to current visible food.
     No NumPy, Gymnasium, Pygame, or PyTorch import is required.
     """
 
@@ -102,6 +106,10 @@ class SnakeEnv:
             divisor = max(game.width, game.height) - 1
             features.extend(free_cell_distance(game, relative_direction(game.direction, action)) / divisor
                             for action in range(3))
+        elif self.observation_mode == "food13":
+            features.extend(((food[0] - head_x) / (game.width - 1),
+                             (food[1] - head_y) / (game.height - 1))
+                            if food is not None else (0.0, 0.0))
         return array("f", features)
 
     def _info(self) -> dict[str, object]:

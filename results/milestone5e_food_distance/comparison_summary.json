@@ -1,0 +1,24 @@
+{
+  "variants": {
+    "A": {
+      "mean_of_training_seed_means": 26.263333333333335,
+      "sd_across_training_seed_means": 2.23262924224631,
+      "training_replications": 3
+    },
+    "B": {
+      "mean_of_training_seed_means": 30.143333333333334,
+      "sd_across_training_seed_means": 2.4923349159640105,
+      "training_replications": 3
+    }
+  },
+  "paired_differences_B_minus_A": {
+    "44": -1.2300000000000004,
+    "55": 4.789999999999999,
+    "66": 8.079999999999998
+  },
+  "mean_paired_difference": 3.879999999999999,
+  "B_higher_all_three_seeds": false,
+  "A_higher_all_three_seeds": false,
+  "direction_consistent_nonzero": false,
+  "interpretation": "Three independent training seeds per variant; preliminary descriptive comparison, no significance tests. 300 evaluation episodes are not 300 training replications."
+}

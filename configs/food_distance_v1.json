@@ -1,0 +1,92 @@
+{
+  "protocol_version": "5e-v1",
+  "research_question": "Does adding signed normalised current food displacement improve mean greedy food score under matched 40000-step training?",
+  "hypothesis": "Model B food13 has higher mean score than A original11; benefit is not assumed. Secondary hypotheses: higher median score and survival, lower between-training-seed variability.",
+  "primary_outcome": "Mean food items per greedy evaluation episode; aggregate as the mean of three independent training-seed means.",
+  "training_seeds": [
+    44,
+    55,
+    66
+  ],
+  "variants": {
+    "A": "original11",
+    "B": "food13"
+  },
+  "run_order": [
+    [
+      "A",
+      44
+    ],
+    [
+      "B",
+      44
+    ],
+    [
+      "A",
+      55
+    ],
+    [
+      "B",
+      55
+    ],
+    [
+      "A",
+      66
+    ],
+    [
+      "B",
+      66
+    ]
+  ],
+  "evaluation_seed_start": 930000,
+  "evaluation_episodes": 100,
+  "training_seed_schedule": "300000 + training_seed * 5000 + zero_based_episode_index; paired initial conditions; disjoint seed blocks",
+  "base_training_config": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "replay_capacity": 50000,
+    "batch_size": 64,
+    "learning_starts": 1000,
+    "target_update_interval": 1000,
+    "gradient_clip_norm": 10,
+    "hidden_size": 128,
+    "epsilon_start": 1,
+    "epsilon_min": 0.05,
+    "epsilon_decay_steps": 50000,
+    "episodes": 40000,
+    "max_environment_steps": 40000,
+    "checkpoint_interval_episodes": 100,
+    "cpu_threads": 1,
+    "environment": {
+      "width": 20,
+      "height": 20,
+      "max_steps": 10000,
+      "starvation_min_steps": 400,
+      "starvation_factor": 100
+    },
+    "rewards": {
+      "food": 10,
+      "collision": -10,
+      "movement": 0,
+      "win": 10
+    }
+  },
+  "analysis": {
+    "across_seed_sd": "sample standard deviation (n=3)",
+    "comparison": "B minus A paired by training seed",
+    "significance_testing": "none",
+    "checkpoint_selection": "final only; no seed or checkpoint selection"
+  },
+  "smoke": {
+    "training_seed": 88,
+    "evaluation_seed_start": 940000,
+    "evaluation_episodes": 5,
+    "episodes": 256,
+    "max_environment_steps": 256,
+    "learning_starts": 32,
+    "batch_size": 16
+  },
+  "food_distance_definition": "dx=(food_x-head_x)/(width-1); dy=(food_y-head_y)/(height-1); positive right/down; float32; current visible food only; no food => zero offsets.",
+  "evaluation_seed_amendment": "Before any 5E training, user approved 930000-930099 because 5D smoke already used 920000-920004. Smoke reserved 940000-940004.",
+  "budget_definition": "Exactly 40000 interactions; episodes=40000 is an unreachable earlier safety bound since every episode requires at least one interaction. Incomplete final episode logged separately; no episode count stopping before the move cap."
+}
