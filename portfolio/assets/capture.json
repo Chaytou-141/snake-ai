@@ -1,0 +1,14 @@
+{
+  "model": "original11",
+  "checkpoint": "results\\milestone4_initial\\checkpoints\\final.pt",
+  "checkpoint_sha256": "ac2ba41422d265ac4a0384126cfa42de7c6c7bd74f468bc703901af96cade726",
+  "seed": 800000,
+  "frames": 61,
+  "frame_duration_ms": 200,
+  "moves_per_frame": 2,
+  "playback_speed": 10,
+  "moves": 120,
+  "score": 9,
+  "weights_unchanged": true,
+  "interpretation": "Actual Pygame inference capture; first120 moves or episode end. Every second move rendered at200ms per frame. Demonstration only, not an evaluation result."
+}

@@ -3,11 +3,12 @@
 import argparse
 import math
 from pathlib import Path
+import pickle
 
 import torch
 
 from snake_ai.agents.dqn_agent import DQNAgent
-from snake_ai.rl import FEATURE_NAMES, SnakeEnv
+from snake_ai.rl import SnakeEnv, feature_names
 
 DEFAULT_CHECKPOINT = Path("results/milestone4_initial/checkpoints/final.pt")
 ACTION_NAMES = ("Straight", "Right", "Left")
@@ -27,7 +28,7 @@ class PlaybackSession:
     """
 
     def __init__(self, checkpoint: Path = DEFAULT_CHECKPOINT, *, seed: int = 800000,
-                 speed: float = 10.0) -> None:
+                 speed: float = 10.0, model_name: str | None = None) -> None:
         if type(seed) is not int or seed < 0:
             raise ValueError("seed must be a nonnegative integer")
         if (isinstance(speed, bool) or not isinstance(speed, (int, float))
@@ -37,11 +38,15 @@ class PlaybackSession:
         self.agent = DQNAgent.load(self.checkpoint)
         self.model = self.agent.online.cpu().eval()
         self.model.requires_grad_(False)
-        if (self.model.input_layer.in_features != len(FEATURE_NAMES)
+        if (self.model.input_layer.in_features != len(feature_names(self.agent.config.observation_mode))
                 or self.model.output_layer.out_features != len(ACTION_NAMES)):
-            raise ValueError("Checkpoint must accept 11 observations and produce 3 relative action values")
+            raise ValueError("Checkpoint input must match its encoder and produce 3 relative action values")
         # Reuse every environment setting from the checkpoint; no demo overrides.
-        self.env = SnakeEnv(self.agent.config.environment, self.agent.config.rewards)
+        self.env = SnakeEnv(self.agent.config.environment, self.agent.config.rewards,
+                            observation_mode=self.agent.config.observation_mode)
+        self.model_name = model_name or f"{self.agent.config.observation_mode} / {self.agent.config.algorithm}"
+        self.model_switching = False
+        self.playback_message = ""
         self.base_seed = seed
         self.episode = 1
         self.speed = float(speed)
@@ -139,9 +144,11 @@ def draw(screen, session: PlaybackSession, fonts: dict) -> None:
     state_label = "EPISODE ENDED" if session.done else "PAUSED" if session.paused else "PLAYING"
     text(f"{state_label}  |  {session.speed:g} moves/sec", left, 80, font="small", color=muted)
     pygame.draw.line(screen, (49, 64, 77), (left, panel.y + 112), (panel.right - 20, panel.y + 112))
-    text("CHECKPOINT", left, 130, font="small", color=muted)
-    text(session.checkpoint.name, left, 150, width=available_width)
-    text(f"Episode {session.episode}   |   Seed {session.seed}", left, 184,
+    text("MODEL", left, 126, font="small", color=muted)
+    text(session.model_name, left, 146, width=available_width)
+    text(f"{session.agent.config.observation_mode} | {session.agent.config.algorithm}", left, 171,
+         font="small", color=muted, width=available_width)
+    text(f"Episode {session.episode}   |   Seed {session.seed}", left, 194,
          font="small", color=muted, width=available_width)
     text("SCORE", left, 218, font="small", color=muted)
     text("MOVES", left + 166, 218, font="small", color=muted)
@@ -173,8 +180,11 @@ def draw(screen, session: PlaybackSession, fonts: dict) -> None:
 
     # Controls remain below the game, so arrow keys never suggest human steering.
     footer_y = MARGIN + board_height + 16
-    for line in ("Space: pause/resume    R: retry    N: next episode",
-                 "+ / -: speed    Esc: exit"):
+    controls = ["Space: pause/resume    R: retry    N: next episode",
+                "Tab / Shift+Tab: model    +/-: speed" if session.model_switching else "+ / -: speed    Esc: exit"]
+    if session.model_switching:
+        controls.append(session.playback_message or "Esc: back    Model switches replay the same seed")
+    for line in controls:
         screen.blit(fonts["small"].render(line, True, muted), (MARGIN, footer_y))
         footer_y += 24
     if session.paused or session.done:
@@ -193,7 +203,7 @@ def draw(screen, session: PlaybackSession, fonts: dict) -> None:
             screen.blit(rendered, rendered.get_rect(center=center))
 
 
-def run(session: PlaybackSession) -> None:
+def run(session: PlaybackSession, *, switch_model=None) -> None:
     import pygame
 
     pygame.init()
@@ -228,6 +238,14 @@ def run(session: PlaybackSession) -> None:
                     elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
                         session.change_speed(-1)
                         elapsed = 0.0
+                    elif event.key == pygame.K_TAB and switch_model is not None:
+                        try:
+                            session = switch_model(session,-1 if getattr(event,'mod',0) & pygame.KMOD_SHIFT else 1)
+                            screen = pygame.display.set_mode(window_size(session))
+                        except (OSError,ValueError,RuntimeError,KeyError,TypeError,EOFError,pickle.UnpicklingError):
+                            session.playback_message = "Model unavailable. Esc: return to selection."
+                            session.paused = True
+                        elapsed = 0.0
                     # Arrow keys are ignored; only the network chooses directions.
             if not running:
                 break
@@ -249,7 +267,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         session = PlaybackSession(args.checkpoint, seed=args.seed, speed=args.speed)
-    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, EOFError, pickle.UnpicklingError) as error:
         parser.error(f"Could not prepare trained AI playback: {error}")
     run(session)
 

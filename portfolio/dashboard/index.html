@@ -1,0 +1,63 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SnakeAI · Experiment ledger</title><style>
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf2f6;color:#183147;font:16px/1.6 'Aptos','Segoe UI',sans-serif}
+nav{position:fixed;inset:0 auto 0 0;width:228px;background:#122a3e;color:#e8f0f5;padding:34px 24px}nav strong{font:30px 'Bahnschrift','Segoe UI',sans-serif}nav p{font-size:13px;color:#bacbd5}nav a{display:block;color:#e8f0f5;text-decoration:none;padding:9px 0;border-bottom:1px solid #294254}nav a:hover,nav a:focus{color:#92dbc9}
+main{margin-left:228px;max-width:1230px;padding:45px 48px 70px}header{padding-bottom:28px;border-bottom:3px solid #1a6871}h1{font:600 clamp(32px,4vw,52px)/1.12 'Bahnschrift','Segoe UI',sans-serif;letter-spacing:-1.4px;margin:10px 0 22px;max-width:800px}h2{font:600 25px/1.3 'Bahnschrift','Segoe UI',sans-serif;margin:0}p{max-width:78ch}.lead{font-size:20px;color:#375467}.notice{background:#dcebea;border-left:4px solid #267678;padding:16px 20px;margin:26px 0}section{background:#fff;padding:27px 30px;margin:22px 0;scroll-margin-top:20px}.study-title{display:flex;gap:15px;align-items:center}.study-title span{font:600 17px 'Bahnschrift','Segoe UI',sans-serif;color:#176c75;border:1px solid #aac4c9;padding:5px 8px}
+.context,figcaption,.footnote{color:#526b7b;font-size:14px}.study-body{display:grid;grid-template-columns:1fr 1fr;gap:25px;align-items:start}table{border-collapse:collapse;width:100%;font-size:15px;text-align:left}th,td{padding:10px 8px;border-bottom:1px solid #dce4e9}thead{color:#4d6576;font-size:13px}.study-body>*{min-width:0}.finding p{margin-top:6px}strong{font-weight:650}details{margin-top:16px}summary{color:#116979;cursor:pointer;padding:7px 0}img{max-width:100%;height:auto}.demo{width:100%;max-width:800px}figure{margin:16px 0}a{color:#116979}code{background:#e8edf1;padding:3px 6px;font-size:13px}.initial{display:flex;gap:36px;flex-wrap:wrap}.initial b{font:600 38px 'Bahnschrift','Segoe UI',sans-serif;color:#156773;display:block}.initial div{min-width:170px}footer{font-size:14px;color:#526b7b}@media(max-width:850px){nav{position:static;width:auto}nav a{display:inline-block;margin-right:15px}main{margin:0;padding:22px 15px}section{padding:20px 16px}.study-body{grid-template-columns:1fr}table{font-size:14px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style></head><body><nav><strong>SnakeAI</strong><p>Version 1.0<br>Experiment ledger</p><a href="#initial">Initial learning result</a>
+<a href="#5d">5D · Obstacle distance</a><a href="#5e">5E · Food displacement</a><a href="#5f">5F · Body awareness</a>
+<a href="#5g">5G · Training duration</a><a href="#5h">5H · Double DQN</a><a href="#failures">Failure analysis</a>
+<p>Local static report.<br>No training or live evaluation.</p></nav><main><header><h1>What actually improved<br>the agent?</h1>
+<p class="lead">A measured study of observation design, training duration and Double DQN in Snake.</p>
+<p>One game engine. Reproducible PyTorch experiments. Conclusions that include the negative results.</p></header>
+<div class="notice"><strong>Read each comparison in context.</strong> Experiments use different training seeds, evaluation seeds and budgets.
+Their scores are not a universal model ranking. *Sample SD describes variation across three training-seed means.</div>
+<section id="initial"><h2>Initial learning result</h2><p class="context">Original11; one training seed 7, 500 episodes. Paired 100-episode evaluation 900000–900099.</p>
+<div class="initial"><div><b>0.14</b>Random policy · mean food</div><div><b>34.81</b>Greedy DQN · mean food</div></div>
+<p>This initial result demonstrates learning for one model. It does not establish generalisation across independent training runs; every episode ended in collision.</p><figure><img class="demo" src="assets/playback.png" alt="Actual original11 model playback, with live Q estimates"><figcaption>Actual local inference, seed 800000. A demonstration, not a new evaluation experiment.</figcaption></figure></section>
+<section id="5d"><div class="study-title"><span>5D</span>
+<h2>Obstacle distances</h2></div><p class="context">500 episodes or 100k moves per run; actual experience counts differ.
+Training seeds 11, 22, 33; evaluation 910000–910099.</p>
+<div class="study-body"><div><table><thead><tr><th>Comparison</th><th>Mean food</th><th>Sample SD*</th></tr></thead>
+<tbody><tr><th>Original11</th><td>29.05</td><td>2.84</td></tr><tr><th>Geometry14</th><td>19.96</td><td>5.77</td></tr></tbody></table></div><div class="finding"><p>Static obstacle distances did not improve score on any of the three pairs.</p>
+<p>Mean paired B − A: <strong>-9.09</strong>.</p></div></div>
+<details><summary>View the original comparison chart</summary><img src="assets/5d.png" alt="Obstacle distances across the three training seeds"></details>
+</section><section id="5e"><div class="study-title"><span>5E</span>
+<h2>Food displacement</h2></div><p class="context">40k moves per independent model.
+Training seeds 44, 55, 66; evaluation 930000–930099.</p>
+<div class="study-body"><div><table><thead><tr><th>Comparison</th><th>Mean food</th><th>Sample SD*</th></tr></thead>
+<tbody><tr><th>Original11</th><td>26.26</td><td>2.23</td></tr><tr><th>Food13</th><td>30.14</td><td>2.49</td></tr></tbody></table></div><div class="finding"><p>Food13 improved two pairs, with a tentative average advantage.</p>
+<p>Mean paired B − A: <strong>+3.88</strong>.</p></div></div>
+<details><summary>View the original comparison chart</summary><img src="assets/5e.png" alt="Food displacement across the three training seeds"></details>
+</section><section id="5f"><div class="study-title"><span>5F</span>
+<h2>Static body awareness</h2></div><p class="context">40k moves per independent model.
+Training seeds 111, 122, 133; evaluation 950000–950099.</p>
+<div class="study-body"><div><table><thead><tr><th>Comparison</th><th>Mean food</th><th>Sample SD*</th></tr></thead>
+<tbody><tr><th>Food13</th><td>29.83</td><td>2.40</td></tr><tr><th>Body16</th><td>29.47</td><td>3.46</td></tr></tbody></table></div><div class="finding"><p>Body16 improved one pair; no consistent benefit was observed.</p>
+<p>Mean paired B − A: <strong>-0.36</strong>.</p></div></div>
+<details><summary>View the original comparison chart</summary><img src="assets/5f.png" alt="Static body awareness across the three training seeds"></details>
+</section><section id="5g"><div class="study-title"><span>5G</span><h2>More training, same trajectory</h2></div>
+<p class="context">Food13; three uninterrupted 100k runs. Seeds 177/188/199; evaluation 1500000–1500099.</p>
+<div class="study-body"><table><thead><tr><th>Snapshot</th><th>Mean food</th><th>Sample SD*</th></tr></thead><tbody><tr><th>40k</th><td>30.00</td><td>2.76</td></tr><tr><th>60k</th><td>28.69</td><td>4.43</td></tr><tr><th>80k</th><td>27.06</td><td>2.72</td></tr><tr><th>100k</th><td>30.19</td><td>1.61</td></tr></tbody></table>
+<div class="finding"><p>Mean100k −40k change: <strong>+0.20</strong>.
+Performance was non-monotonic; the intermediate snapshots never replaced the predefined 100k endpoint.</p>
+<p>Snapshots within a run are correlated repeated measurements, not independent training runs.</p></div></div>
+<details><summary>View all measured checkpoints</summary><img src="assets/5g.png" alt="Within-run evaluation at 40k, 60k, 80k and 100k"></details></section><section id="5h"><div class="study-title"><span>5H</span>
+<h2>Learning target</h2></div><p class="context">100k moves; same food13 representation.
+Training seeds 244, 255, 266; evaluation 970000–970099.</p>
+<div class="study-body"><div><table><thead><tr><th>Comparison</th><th>Mean food</th><th>Sample SD*</th></tr></thead>
+<tbody><tr><th>Standard DQN</th><td>25.39</td><td>3.42</td></tr><tr><th>Double DQN</th><td>25.71</td><td>0.08</td></tr></tbody></table></div><div class="finding"><p>Double DQN improved one pair. Its lower observed seed variance needs replication.</p>
+<p>Mean paired B − A: <strong>+0.32</strong>.</p></div></div>
+<details><summary>View the original comparison chart</summary><img src="assets/5h.png" alt="Learning target across the three training seeds"></details>
+</section>
+<section id="failures"><h2>Learning did not solve survival</h2><p>In the original model's 100 recorded collisions,
+<strong>100 had no immediately safe action</strong> at the final move. Avoidable immediate final collisions: 0.</p>
+<p>Earlier decisions matter. Static reachable-space estimates are snapshots of a moving body, not guarantees of future safety.
+The observed Pearson correlation with remaining moves was <strong>0.284</strong>, computed across correlated moves.</p>
+<p>1628 of 1704 one-safe-action spells recovered to multiple options.
+A constrained state did not always imply imminent death.</p>
+<p>Double DQN's Q diagnostic used the same 478 recorded states for all estimators. Online-target disagreement is not proof of true overestimation bias.</p></section>
+<footer><p>Generated from saved JSON/CSV measurements. No scores are hand-adjusted. Source paths and SHA-256 hashes:
+<a href="data.json">data.json</a>. Checkpoints remain local and excluded from Git.</p>
+<p>Launch the demonstration: <code>python -m snake_ai.demo</code>. Three training seeds provide preliminary evidence; no significance tests or best-checkpoint selection were used.</p></footer></main></body></html>

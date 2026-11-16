@@ -1,0 +1,31 @@
+flowchart LR
+  engine["Game engine<br/>Grid rules / food RNG"]
+  env["RL environment<br/>Rewards / termination"]
+  encoder["Observation encoder<br/>11 / 13 / 14 / 16"]
+  agent["DQN agent<br/>Greedy / exploration"]
+  action["Relative action<br/>Straight / right / left"]
+  replay["Experience replay<br/>Transitions / minibatches"]
+  online["Online network<br/>Q(s,a) / action choice"]
+  target["Target network<br/>Detached future values"]
+  update["Training updates<br/>Huber loss / Adam / clip"]
+  checkpoint["Model checkpoints<br/>Weights / config / counters"]
+  evaluation["Greedy evaluation<br/>Fresh paired environment seeds"]
+  results["Experiment records<br/>CSV / JSON / charts / report"]
+  engine -->|"implements rules"| env
+  env -->|"state"| encoder
+  encoder -->|"float32 features"| agent
+  agent -->|"action values"| action
+  action -->|"env.step"| env
+  env -->|"training transitions"| replay
+  replay -->|"sample batch"| online
+  replay -->|"next states"| target
+  online -->|"periodic copy / Double action selection"| target
+  online -->|"selected Q(s,a)"| update
+  target -->|"bootstrap target"| update
+  update -->|"optimise online weights"| online
+  online -->|"save"| checkpoint
+  checkpoint -->|"load for inference"| evaluation
+  evaluation -->|"same rules"| env
+  evaluation -->|"outcomes"| results
+  agent -->|"inference uses online"| online
+  replay -->|"rewards / terminal mask"| update

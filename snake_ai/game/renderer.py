@@ -58,7 +58,7 @@ def run(game: SnakeGame, moves_per_second: float = 10) -> None:
     try:
         screen = pygame.display.set_mode((game.width * CELL_SIZE,
                                           game.height * CELL_SIZE + HEADER_HEIGHT))
-        pygame.display.set_caption("SnakeAI - Milestone 1")
+        pygame.display.set_caption("SnakeAI - Human play")
         font = pygame.font.Font(None, 30)
         small_font = pygame.font.Font(None, 22)
         clock = pygame.time.Clock()

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snake-ai"
-version = "0.1.0"
-description = "A playable Snake game with an independent, reproducible Python engine"
+version = "1.0.0"
+description = "SnakeAI: reproducible DQN experiments, diagnostics and local demonstration"
 requires-python = ">=3.11"
 dependencies = ["pygame>=2.6.1,<3"]
 
@@ -16,6 +16,8 @@ training = ["torch==2.15.0", "matplotlib==3.11.2"]
 
 [project.scripts]
 snake-ai = "snake_ai.__main__:main"
+snake-ai-demo = "snake_ai.demo:main"
+snake-ai-dashboard = "snake_ai.dashboard:main"
 
 [tool.setuptools.packages.find]
 include = ["snake_ai*"]

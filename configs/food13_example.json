@@ -1,0 +1,6 @@
+{
+  "observation_mode": "food13",
+  "seed": 42,
+  "episodes": 100000,
+  "max_environment_steps": 100000
+}

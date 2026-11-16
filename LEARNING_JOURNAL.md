@@ -1363,3 +1363,35 @@ Double DQN warrants a separately predefined replication to check the observed
 variability reduction, rather than immediate adoption as a proven improvement.
 Standard remains the default. We stop after 5H, preserve the mixed outcomes,
 and do not tune further on these evaluation seeds or begin Milestone 6.
+
+## Version 1.0: portfolio and local demonstration
+
+The final application reuses the existing renderer and inference session.
+Checkpoint configuration selects the matching original11/food13/distance14/body16
+encoder and Standard/Double algorithm metadata. The five demo choices use the
+historical original or first declared training seed's final checkpoint, never
+a ranking on held-out scores. Only compatible local files are offered.
+
+Switching models resets to the same current environment seed and pauses;
+playback remains greedy inference with frozen weights. Human play remains
+available without model files or ML dependencies. Q-values are labelled as
+future discounted reward estimates, not probabilities.
+
+The static dashboard reads saved JSON/CSV files and checks aggregates before
+presenting them. Each experiment retains its budget and seed context. The
+initial 34.81 result is explicitly single-seed; later comparisons are not a
+universal architecture ranking. A real Pygame GIF and screenshot record a
+separate demonstration seed, not a new scientific evaluation.
+
+The portfolio includes a maintainable architecture diagram, checkpoint
+inventory, recording guide, technical summary and four publication drafts.
+Weights remain excluded from Git and no additional experiment was performed.
+See portfolio/verification.md for the final test and preservation checks.
+
+Final Version 1.0 validation: 44 focused tests passed; the complete suite ran
+once with 336 passing tests and one existing dependency deprecation warning.
+All 502 historical result/checkpoint files remain byte-for-byte unchanged.
+The genuine capture contains 61 frames from 120 inference moves, with frozen
+weights and counters. No model was retrained and no historical experiment
+was regenerated. Portfolio assets, the editable diagram, readable README and
+local dashboard complete Version 1.0. No new research experiment was started.

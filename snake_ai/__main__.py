@@ -5,7 +5,7 @@ import math
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Play SnakeAI Milestone 1")
+    parser = argparse.ArgumentParser(description="Play SnakeAI with keyboard controls")
     parser.add_argument("--speed", type=float, default=10,
                         help="Moves per second (default: 10)")
     parser.add_argument("--seed", type=int, default=None,
