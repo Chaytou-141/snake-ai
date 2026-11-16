@@ -1,0 +1,121 @@
+{
+  "protocol_version": "5h-v1",
+  "research_question": "Does Double DQN improve food13 performance or descriptive training stability relative to Standard DQN?",
+  "hypothesis": "Double DQN has higher mean greedy food score across matched independent training seeds; improvement is not assumed.",
+  "primary_outcome": "Mean food items per greedy evaluation episode; aggregate as the mean of three independent training-seed means.",
+  "training_seeds": [
+    244,
+    255,
+    266
+  ],
+  "variants": {
+    "A": "food13",
+    "B": "food13"
+  },
+  "run_order": [
+    [
+      "A",
+      244
+    ],
+    [
+      "B",
+      244
+    ],
+    [
+      "A",
+      255
+    ],
+    [
+      "B",
+      255
+    ],
+    [
+      "A",
+      266
+    ],
+    [
+      "B",
+      266
+    ]
+  ],
+  "evaluation_seed_start": 970000,
+  "evaluation_episodes": 100,
+  "training_seed_schedule": "training_seed_starts[str(seed)]+episode_index; matched within A/B pair; smoke starts600000",
+  "base_training_config": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "replay_capacity": 50000,
+    "batch_size": 64,
+    "learning_starts": 1000,
+    "target_update_interval": 1000,
+    "gradient_clip_norm": 10,
+    "hidden_size": 128,
+    "epsilon_start": 1,
+    "epsilon_min": 0.05,
+    "epsilon_decay_steps": 50000,
+    "episodes": 100000,
+    "max_environment_steps": 100000,
+    "checkpoint_interval_episodes": 100,
+    "cpu_threads": 1,
+    "environment": {
+      "width": 20,
+      "height": 20,
+      "max_steps": 10000,
+      "starvation_min_steps": 400,
+      "starvation_factor": 100
+    },
+    "rewards": {
+      "food": 10,
+      "collision": -10,
+      "movement": 0,
+      "win": 10
+    }
+  },
+  "analysis": {
+    "across_seed_sd": "sample standard deviation (n=3)",
+    "comparison": "B minus A paired by training seed",
+    "significance_testing": "none",
+    "checkpoint_selection": "final only; no seed or checkpoint selection"
+  },
+  "smoke": {
+    "training_seed": 288,
+    "evaluation_seed_start": 980000,
+    "evaluation_episodes": 5,
+    "episodes": 512,
+    "max_environment_steps": 512,
+    "learning_starts": 32,
+    "batch_size": 16
+  },
+  "food_distance_definition": "dx=(food_x-head_x)/(width-1); dy=(food_y-head_y)/(height-1); positive right/down; float32; current visible food only; no food => zero offsets.",
+  "budget_definition": "Exactly100000 interactions per fresh model; episode safety bound100000 cannot stop earlier than the move cap. No snapshots chosen retrospectively.",
+  "algorithms": {
+    "A": "dqn",
+    "B": "double_dqn"
+  },
+  "training_seed_starts": {
+    "244": 110000,
+    "255": 300000,
+    "266": 400000
+  },
+  "seed_audit_note": "Requested model seed211 was used in5G smoke. Under the authorised no-overlap rule, freeze unused244/255/266 for training and288 for smoke. Audit eval970000-970099, smoke980000-980004 and all new food blocks against earlier recorded seeds before training.",
+  "diagnostic": {
+    "evaluation_episode_count": 20,
+    "move_steps": [
+      1,
+      10,
+      25,
+      50
+    ],
+    "definition": "For each nonterminal,nontruncated recorded next-state: max Q_online minus Q_target evaluated at argmax Q_online. Pool recorded states from both algorithms/all three seeds; every trained estimator receives exactly the same complete pool. Descriptive estimator disagreement, not proof of overestimation bias.",
+    "maximum_states_per_run": 80,
+    "maximum_pooled_states": 480
+  },
+  "stability_metrics": [
+    "mean_loss",
+    "maximum_loss",
+    "last10000_mean_loss",
+    "last10000_loss_sd",
+    "gradient_clipped_fraction",
+    "training_seed_score_sd"
+  ]
+}

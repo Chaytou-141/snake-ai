@@ -1286,3 +1286,80 @@ The temporary smoke cycle and 93 focused tests passed, followed by a single
 full-suite run with 308 passing tests and one dependency deprecation warning.
 The saved-data audit verified all measurements and 301 historical files
 unchanged. 5F was committed and pushed first; 5G remains uncommitted for review.
+
+## Milestone 5H: separating action selection from value evaluation
+
+Standard DQN uses a target network to ask both which next action looks best
+and what that action is worth. Double DQN separates those jobs: the online
+network chooses, and the target network evaluates that chosen action. For
+example, if online values favour action 1 but target values favour action 0,
+Standard uses the target's action 0 value; Double uses its action 1 value.
+The architecture, observations, rewards and all other update rules stay fixed.
+
+The target is calculated without gradients. A collision is a genuine terminal
+transition and contributes only its immediate reward. A time-limit truncation
+preserves the existing bootstrap behaviour because a budget limit is not a
+terminal game state. Keeping these semantics consistent avoids confounding
+the algorithm comparison with a different environment interpretation.
+
+The initial proposal reused seed 211 from 5G smoke validation. Following the
+no-overlap instruction, the protocol fixes 244/255/266 instead, before any final
+training. Both algorithms start from identical weights for a paired seed and
+share food-episode and exploration/replay seed rules, but their learned
+actions and later experiences can differ. Each receives 100,000 moves and
+greedy evaluation on the same 100 fresh seeds. Old checkpoints still load as
+Standard DQN; the original mode and all feature encoders are unchanged.
+
+To examine estimator disagreement cheaply, we record a fixed small set of
+next states during those required evaluations. We pool both policies' states
+and feed exactly that common pool to every final agent. The gap is online's
+maximum Q minus target's Q at online's selected action. This diagnostic can
+be positive or negative. It does not compare predictions with true expected
+returns, so it cannot establish actual overestimation bias. Our final target
+networks are only one optimizer update behind online, making small gaps
+possible even when the two estimators share a common error.
+
+We also record loss and clipping summaries, with caution: lower TD loss can
+reflect different experiences or target scales, rather than better policies.
+The primary evidence remains held-out food score across three independent
+training seeds. The 300 evaluation episodes per algorithm do not create 300
+independent training runs. Results will be reported for all seeds and final
+checkpoints, without tuning on held-out outcomes or selecting a winner after
+inspecting the learning history.
+
+### What the measured 5H outcomes show
+
+Standard DQN scored 26.39, 21.58, 28.19; Double scored 25.62, 25.73, 25.77 on the
+three paired seeds. Mean scores were 25.39 and 25.71, with a paired average
+gain of 0.32 for Double. It improved only the seed 255 pair and declined on
+the other two. The primary hypothesis therefore did not receive consistent
+support in this experiment. Every final greedy episode still ended in collision.
+
+The sample SD across seed means was 3.42 for Standard and 0.08 for Double.
+That is an interesting descriptive reduction in observed variability, but
+three training seeds are insufficient to claim generally more stable learning.
+Similar final scores could reflect similar performance limits rather than a
+superior policy. Loss and gradient-clipping outcomes also depend on experienced
+data and target scales, so lower values cannot establish better control.
+
+All six estimators were evaluated on the same 478 recorded next states, drawn
+from the required evaluations. Mean absolute online-target disagreement was
+0.11035 for Standard and 0.12317 for Double, with a reduction only on seed 255.
+This does not demonstrate reduced overestimation. We did not measure true
+returns, and the target networks were only one optimizer update behind online.
+Shared error, target synchronization and policy-dependent state coverage all
+limit interpretation. Diagnostic numbers must retain those caveats even when
+they appear to favour one algorithm.
+
+Both algorithms completed 100,000 moves and 99,001 updates per seed, starting
+from matched initial weights and using unchanged food13 and rewards. Both
+temporary smoke cycles passed. The focused checks passed 86 tests in total,
+including 16 new algorithm cases; the full suite ran once with 324 passing
+tests, no failures and one dependency deprecation warning. Read-only audits
+confirmed all 388 historical files unchanged and reproduced scores, budgets,
+loss summaries and pooled-state diagnostics without rerunning environments.
+
+Double DQN warrants a separately predefined replication to check the observed
+variability reduction, rather than immediate adoption as a proven improvement.
+Standard remains the default. We stop after 5H, preserve the mixed outcomes,
+and do not tune further on these evaluation seeds or begin Milestone 6.

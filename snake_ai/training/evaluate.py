@@ -25,7 +25,8 @@ def summarise(rows: list[dict]) -> dict:
         "win_rate": sum(row["end_reason"] == "win" for row in rows) / count}
 
 
-def evaluate_agent(agent: DQNAgent, *, include_random: bool = True) -> tuple[list[dict], dict]:
+def evaluate_agent(agent: DQNAgent, *, include_random: bool = True,
+                   state_recorder=None) -> tuple[list[dict], dict]:
     config = agent.config
     seeds = list(range(config.evaluation_seed_start,
                        config.evaluation_seed_start + config.evaluation_episodes))
@@ -48,6 +49,8 @@ def evaluate_agent(agent: DQNAgent, *, include_random: bool = True) -> tuple[lis
             while True:
                 action = agent.act(observation, evaluate=True) if policy == "dqn_greedy" else random_agent.act()
                 observation, reward, terminated, truncated, info = env.step(action)
+                if state_recorder is not None and policy == "dqn_greedy":
+                    state_recorder(seed, info["steps"], tuple(observation), terminated, truncated)
                 total_reward += reward
                 if terminated or truncated:
                     break

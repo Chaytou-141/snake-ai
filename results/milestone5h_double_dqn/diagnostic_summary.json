@@ -1,0 +1,96 @@
+{
+  "common_states": 478,
+  "per_run": [
+    {
+      "model": "A",
+      "training_seed": 244,
+      "algorithm": "dqn",
+      "states": 478,
+      "mean_gap": 0.12972115871796547,
+      "mean_abs_gap": 0.12972115871796547,
+      "sd_gap": 0.08053527051800774,
+      "online_mean_max": 46.76287078857422,
+      "target_mean_selected": 46.63315963745117,
+      "positive_fraction": 1.0,
+      "target_update_lag": 1
+    },
+    {
+      "model": "B",
+      "training_seed": 244,
+      "algorithm": "double_dqn",
+      "states": 478,
+      "mean_gap": 0.23043425811384513,
+      "mean_abs_gap": 0.23043425811384513,
+      "sd_gap": 0.0361905295972557,
+      "online_mean_max": 44.88107681274414,
+      "target_mean_selected": 44.650638580322266,
+      "positive_fraction": 1.0,
+      "target_update_lag": 1
+    },
+    {
+      "model": "A",
+      "training_seed": 255,
+      "algorithm": "dqn",
+      "states": 478,
+      "mean_gap": 0.1576844538604864,
+      "mean_abs_gap": 0.1576844538604864,
+      "sd_gap": 0.05176537617882247,
+      "online_mean_max": 45.06270980834961,
+      "target_mean_selected": 44.905025482177734,
+      "positive_fraction": 1.0,
+      "target_update_lag": 1
+    },
+    {
+      "model": "B",
+      "training_seed": 255,
+      "algorithm": "double_dqn",
+      "states": 478,
+      "mean_gap": 0.027738814573407673,
+      "mean_abs_gap": 0.044880851043318105,
+      "sd_gap": 0.044825883290880886,
+      "online_mean_max": 41.924903869628906,
+      "target_mean_selected": 41.89716339111328,
+      "positive_fraction": 0.7364016736401674,
+      "target_update_lag": 1
+    },
+    {
+      "model": "A",
+      "training_seed": 266,
+      "algorithm": "dqn",
+      "states": 478,
+      "mean_gap": 0.039531468347525495,
+      "mean_abs_gap": 0.04364784591866338,
+      "sd_gap": 0.03347708604293334,
+      "online_mean_max": 45.498538970947266,
+      "target_mean_selected": 45.45900344848633,
+      "positive_fraction": 0.9100418410041841,
+      "target_update_lag": 1
+    },
+    {
+      "model": "B",
+      "training_seed": 266,
+      "algorithm": "double_dqn",
+      "states": 478,
+      "mean_gap": 0.09420845398843039,
+      "mean_abs_gap": 0.09420845398843039,
+      "sd_gap": 0.027272622895403668,
+      "online_mean_max": 43.853511810302734,
+      "target_mean_selected": 43.759300231933594,
+      "positive_fraction": 1.0,
+      "target_update_lag": 1
+    }
+  ],
+  "checkpoint_hashes": {
+    "runs\\A_seed244\\training\\checkpoints\\final.pt": "ece265f90075e39df07972843429e0a6d17dd093f7cbca55d8d1b6c5eb8af614",
+    "runs\\B_seed244\\training\\checkpoints\\final.pt": "c43c8672a1ab2cec8325895840b0c9a1f2feb5c542acd52629d3fc8983e4c889",
+    "runs\\A_seed255\\training\\checkpoints\\final.pt": "369bbf1940451106cc1674f3b2fe6497e2a62973629464ac212e1e70c982aa30",
+    "runs\\B_seed255\\training\\checkpoints\\final.pt": "8ed0f54c5f421415a6945b0985d4819bfab40d5bc9e72442d4b5c3489fc46980",
+    "runs\\A_seed266\\training\\checkpoints\\final.pt": "af5db15dd34ff6ce9b13a8bea9fa64ed8e15e3c5d7c83c43c39c6fbdcc655dc2",
+    "runs\\B_seed266\\training\\checkpoints\\final.pt": "27f8f047272126eb771a4768cc1aa7df5c67e4c81da563501340eb6ac2c08fb9"
+  },
+  "artifact_hashes": {
+    "diagnostic_states.csv": "df229a40ee66f1b8075cc00b79c70053390afad469bf8ba47ac625c5f22955be",
+    "q_disagreement.csv": "c3d07d9c012115df15645fd4d345a88e8eed437018c6dccbedc4342e1b6d1047"
+  },
+  "interpretation": "Same pooled next states from both algorithms and all three seeds. Signed estimator disagreement, not actual overestimation: no ground-truth returns measured. Pool is policy-dependent and nonuniform. Targets lag by one optimizer update at final checkpoints; small gaps can reflect recent synchronization and do not prove calibrated Q values."
+}

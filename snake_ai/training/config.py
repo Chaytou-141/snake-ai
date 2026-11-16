@@ -33,9 +33,12 @@ class TrainingConfig:
     environment: EnvConfig = field(default_factory=EnvConfig)
     rewards: RewardConfig = field(default_factory=RewardConfig)
     observation_mode: str = "original11"
+    algorithm: str = "dqn"
 
     def __post_init__(self) -> None:
         feature_names(self.observation_mode)
+        if self.algorithm not in ("dqn", "double_dqn"):
+            raise ValueError("algorithm must be 'dqn' or 'double_dqn'")
         positive = ("replay_capacity", "batch_size", "learning_starts", "target_update_interval",
                     "hidden_size", "epsilon_decay_steps", "episodes", "max_environment_steps",
                     "checkpoint_interval_episodes", "evaluation_episodes", "cpu_threads")
@@ -64,6 +67,8 @@ class TrainingConfig:
         # and saved historical evaluation comparisons.
         if self.observation_mode == "original11":
             data.pop("observation_mode")
+        if self.algorithm == "dqn":
+            data.pop("algorithm")
         return data
 
     @property

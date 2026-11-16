@@ -1,4 +1,4 @@
-"""Standard DQN: online action regression against a detached target network."""
+"""DQN and Double DQN: action regression against detached bootstrapped targets."""
 
 import os
 from pathlib import Path
@@ -62,7 +62,12 @@ class DQNAgent:
 
     def compute_targets(self, batch: ReplayBatch) -> torch.Tensor:
         with torch.no_grad():
-            next_values = self.target(batch.next_states).max(dim=1).values
+            target_values = self.target(batch.next_states)
+            if self.config.algorithm == "double_dqn":
+                next_actions = self.online(batch.next_states).argmax(dim=1)
+                next_values = selected_q_values(target_values, next_actions)
+            else:
+                next_values = target_values.max(dim=1).values
             # Truncation is a budget limit, not a genuine terminal state.
             return batch.rewards + self.config.gamma * (~batch.terminated).float() * next_values
 

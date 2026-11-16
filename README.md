@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, 5D/5E/5F features, and 5G duration experiment complete |
+| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, 5D/5E/5F features, 5G duration, and 5H algorithm comparison complete |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -1490,3 +1490,127 @@ snapshot tensors/counters, seed schedules, budgets and aggregates. All
 **301 historical files** remain byte-for-byte unchanged, including every
 earlier model. No successful training or evaluation was repeated. 5G remains
 uncommitted; no additional push followed the authorised 5F checkpoint.
+
+## Milestone 5H: Standard DQN versus Double DQN
+
+5G was subsequently verified, committed and pushed as
+`aad03f19f589d9883e34b0c5d81780872b26cba9` before 5H development. All its
+snapshots and historical results remain preserved. Historical reproduction
+uses the corresponding commit and recorded dependency versions because the
+experiment runner verifies source/software hashes.
+
+The primary hypothesis is that Double DQN improves mean greedy food score.
+Both algorithms use the same food13 observations, **13 -> 128 -> 128 -> 3**
+network, rewards, environment rules and hyperparameters. Only the future-Q
+part of the training target changes:
+
+- Standard DQN selects and evaluates the next action with the target network:
+  `r + gamma * (1 - terminated) * max_a Q_target(next_state, a)`.
+- Double DQN selects with the online network and evaluates with the target:
+  `r + gamma * (1 - terminated) * Q_target(next_state, argmax_a Q_online(next_state, a))`.
+
+Targets are detached with `torch.no_grad()`. Genuine terminal transitions do
+not bootstrap; time-limit truncations retain the existing bootstrap semantics.
+`TrainingConfig.algorithm` accepts `dqn` (default) or `double_dqn`. Default
+Standard configurations omit the new field when saved, preserving the legacy
+schema; older checkpoints load as Standard DQN with their original encoders.
+
+Protocol [5h-v1](configs/double_dqn_v1.json) freezes fresh training seeds
+**244/255/266**, replacing the proposed 211/222/233 because 211 was already used
+by 5G smoke validation. This follows the requested no-overlap rule and was
+documented before training. Every seed trains both algorithms from scratch
+for exactly **100,000 moves**; paired initial network weights, replay and
+exploration seeds match. Food schedules start at 110000/300000/400000 plus
+episode index. Both final models receive 100 greedy evaluations on identical
+fresh seeds **970000-970099**. Smoke uses model seed 288, food 600000 onward
+and evaluation **980000-980004** in temporary directories. The seed audit
+checked prior experiment/evaluation records before freezing all ranges.
+
+Adam 0.0005, gamma 0.99, replay 50000, batch 64, warmup 1000, target copying every
+1000 optimiser updates, clipping 10, epsilon 1 to 0.05 over 50000 moves and one
+CPU thread remain unchanged. Every final model reaches 99,001 updates and
+epsilon 0.05. Trajectories diverge after learning even with matched initial
+conditions; exact cross-platform/version reproducibility is not claimed.
+
+The lightweight Q diagnostic records nonterminal next states at moves 1/10/25/50
+in the first 20 required evaluation episodes per model, at most 80 states each.
+The union from all six models is fed unchanged to every final estimator:
+`max Q_online(next_state) - Q_target(next_state, argmax Q_online(next_state))`.
+Signed and absolute gaps describe estimator disagreement. They are **not
+proof of actual overestimation bias**: no true returns are measured, sampling
+is policy-dependent, and final targets lag by only one optimisation update.
+No extra evaluation episodes are run for this diagnostic.
+
+```powershell
+python -m pytest tests/test_double_dqn.py tests/test_training.py -q
+python -m snake_ai.experiments.feature_comparison --protocol configs/double_dqn_v1.json --smoke
+python -m snake_ai.experiments.feature_comparison --protocol configs/double_dqn_v1.json
+# Finish one missing run while preserving successful runs:
+python -m snake_ai.experiments.feature_comparison --protocol configs/double_dqn_v1.json --model B --seed 255
+```
+
+Results default to `results/milestone5h_double_dqn/`. Configurations, software
+and source hashes are frozen; completed training/evaluation outputs are hashed
+and reused rather than repeated. Partial failures are preserved for review.
+Primary results use the three independent training-seed means and paired
+Double-minus-Standard differences, with sample SD and no significance tests.
+Recorded loss/clipping summaries are descriptive and do not by themselves
+establish stability or control quality. No hyperparameters are tuned and no
+best checkpoint is selected. 5H remains uncommitted and will not be pushed.
+
+### Actual 5H findings
+
+All six fresh models completed exactly **100,000 moves**, **99,001 updates**
+and 100 greedy evaluations. Every evaluation ended in collision, with no
+truncations or wins. Actual budgets and training durations:
+
+| Model | Seed | Completed training episodes | Training seconds |
+|---|---:|---:|---:|
+| Standard | 244 | 888 | 221.45 |
+| Double | 244 | 939 | 231.93 |
+| Standard | 255 | 905 | 226.91 |
+| Double | 255 | 892 | 238.70 |
+| Standard | 266 | 891 | 225.49 |
+| Double | 266 | 860 | 235.99 |
+
+| Training seed | Standard mean score | Double mean score | Double minus Standard |
+|---|---:|---:|---:|
+| 244 | 26.39 | 25.62 | -0.77 |
+| 255 | 21.58 | 25.73 | +4.15 |
+| 266 | 28.19 | 25.77 | -2.42 |
+
+Across three training-seed means, Standard scored **25.39 (sample SD 3.42)**
+and Double **25.71 (sample SD 0.08)**. The mean paired difference was **+0.32**,
+with Double higher on **one of three** seeds. This small average gain and
+mixed paired direction do not establish consistent superiority. Double's
+lower observed variation is worth checking in a larger predefined replication,
+but three training seeds do not establish generally improved stability.
+Loss and clipping summaries are available in the report; they are descriptive,
+and all losses/gradient norms remained finite.
+
+The diagnostic pooled **478 recorded next states** from both algorithms and
+all three seeds. Each final estimator used exactly that same pool, with no
+additional evaluation episodes. Mean signed gaps across training seeds were
+**0.10898 for Standard** and **0.11746 for Double**; mean absolute gaps were
+**0.11035** and **0.12317**, respectively. Double reduced absolute disagreement
+only on seed 255. There is no consistent disagreement reduction, and this
+cannot establish actual overestimation bias: ground-truth returns were not
+measured, the pool is policy-dependent, and final targets lag by one update.
+Lower online Q values alone also do not establish better calibration.
+
+[Comparison report](results/milestone5h_double_dqn/report.md) includes medians,
+score ranges, survival, loss/clipping summaries, per-seed diagnostic values,
+metadata, raw-data locations and reproduction details.
+[Score comparison chart](results/milestone5h_double_dqn/average_score.png).
+
+Validation: **85 focused tests plus one chart/report test passed**, including
+16 new algorithm tests. Both smoke cycles passed with 512 moves and 481 finite
+updates each. The full suite ran once at completion: **324 passed, 0 failed**,
+one dependency deprecation warning. The independent read-only audit checked
+all 600 evaluation rows, 98 run-artifact hashes, exact budgets, paired
+configurations, loss summaries, common-state diagnostic records and aggregates.
+All **388 historical artifact files** remain byte-for-byte unchanged. No
+successful training/evaluation run was repeated and no older experiment was
+regenerated. Standard DQN remains the default; further investigation would
+need fresh predefined seeds and should not tune on these inspected outcomes.
+5H remains uncommitted; only the authorised 5G checkpoint was pushed.

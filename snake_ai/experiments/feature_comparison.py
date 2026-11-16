@@ -6,6 +6,7 @@ from dataclasses import replace
 import hashlib
 from importlib.metadata import version
 import json
+import math
 from pathlib import Path
 import platform
 import random
@@ -47,6 +48,25 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def load_protocol(path: Path = DEFAULT_PROTOCOL) -> dict:
     protocol = json.loads(Path(path).read_text(encoding="utf-8"))
+    if protocol.get("protocol_version") == "5h-v1":
+        canonical = Path(__file__).resolve().parents[2]/"configs/double_dqn_v1.json"
+        defaults = TrainingConfig().to_dict()
+        omitted = {"seed","training_seed_start","evaluation_seed_start","evaluation_episodes","random_policy_seed_start"}
+        base = {k:v for k,v in defaults.items() if k not in omitted}
+        base.update(episodes=100000,max_environment_steps=100000)
+        if (protocol != json.loads(canonical.read_text(encoding="utf-8"))
+                or protocol["base_training_config"] != base or protocol["training_seeds"] != [244,255,266]
+                or protocol["variants"] != {"A":"food13","B":"food13"}
+                or protocol["algorithms"] != {"A":"dqn","B":"double_dqn"}
+                or protocol["training_seed_starts"] != {"244":110000,"255":300000,"266":400000}
+                or protocol["run_order"] != [[m,s] for s in (244,255,266) for m in ("A","B")]
+                or protocol["evaluation_seed_start"] != 970000 or protocol["evaluation_episodes"] != 100
+                or protocol["smoke"] != {"training_seed":288,"evaluation_seed_start":980000,
+                    "evaluation_episodes":5,"episodes":512,"max_environment_steps":512,"learning_starts":32,"batch_size":16}
+                or protocol["diagnostic"]["move_steps"] != [1,10,25,50]
+                or protocol["diagnostic"]["evaluation_episode_count"] != 20):
+            raise ValueError("Unexpected predeclared Standard/Double DQN protocol")
+        return protocol
     if protocol.get("protocol_version") == "5f-v1":
         expected = json.loads((Path(__file__).resolve().parents[2]/"configs/body_awareness_v1.json").read_text(encoding="utf-8"))
         defaults = TrainingConfig().to_dict()
@@ -105,10 +125,12 @@ def training_config(protocol: dict, model: str, seed: int, *, smoke: bool = Fals
     if not smoke and seed not in protocol["training_seeds"]:
         raise ValueError("Final training seed is not in the fixed protocol")
     config = TrainingConfig.from_dict({**protocol["base_training_config"], "seed":seed,
-        "training_seed_start":((850000 if smoke else protocol["training_seed_starts"][str(seed)])
+        "training_seed_start":((600000 if smoke else protocol["training_seed_starts"][str(seed)])
+            if protocol["protocol_version"]=="5h-v1" else (850000 if smoke else protocol["training_seed_starts"][str(seed)])
             if protocol["protocol_version"]=="5f-v1" else
             (300000 + seed*5000 if protocol["protocol_version"]=="5e-v1" else 200000 + seed*1000)), "evaluation_seed_start":protocol["evaluation_seed_start"],
-        "evaluation_episodes":protocol["evaluation_episodes"], "observation_mode":protocol["variants"][model]})
+        "evaluation_episodes":protocol["evaluation_episodes"], "observation_mode":protocol["variants"][model],
+        "algorithm":protocol.get("algorithms",{}).get(model,"dqn")})
     if smoke:
         if seed != protocol["smoke"]["training_seed"]:
             raise ValueError("Smoke training must use its dedicated development seed")
@@ -126,7 +148,8 @@ def prepare_output(output: Path, protocol: dict, *, extra_source_files: tuple[st
         "dependencies":{name:version(name) for name in ("torch","pygame","matplotlib","numpy")},
         "deterministic_algorithms":True, "cpu_threads":1,
         "seed_rule":"Python and torch: seed; replay: seed+1; exploration: seed+2; food: " +
-            ("protocol training_seed_starts[seed]+episode_index; smoke food starts 850000" if protocol["protocol_version"]=="5f-v1" else
+            ("protocol training_seed_starts[seed]+episode_index; smoke food starts 600000" if protocol["protocol_version"]=="5h-v1" else
+             "protocol training_seed_starts[seed]+episode_index; smoke food starts 850000" if protocol["protocol_version"]=="5f-v1" else
              "300000+5000*seed+episode_index" if protocol["protocol_version"]=="5e-v1" else "200000+1000*seed+episode_index")}
     if seed_rule is not None:
         metadata["seed_rule"] = seed_rule
@@ -151,8 +174,8 @@ def seed_cpu(seed: int) -> None:
     torch.use_deterministic_algorithms(True)
 
 
-def evaluation_rows(agent: DQNAgent, model: str, seed: int) -> tuple[list[dict], dict]:
-    rows, manifest = evaluate_agent(agent, include_random=False)
+def evaluation_rows(agent: DQNAgent, model: str, seed: int, *, state_recorder=None) -> tuple[list[dict], dict]:
+    rows, manifest = evaluate_agent(agent, include_random=False,state_recorder=state_recorder)
     values = [row["score"] for row in rows]
     for row in rows:
         row["model"] = model
@@ -197,6 +220,8 @@ def run_smoke(protocol: dict, output: Path) -> dict:
             findings[model] = {"input_dim":config.input_dim, "updates":training["optimiser_updates_this_run"],
                 "weights_changed":True, "checkpoint_loaded":True, "evaluation_episodes":len(rows),
                 "evaluation_weights_unchanged":True}
+            if protocol["protocol_version"]=="5h-v1":
+                findings[model]["algorithm"] = loaded.config.algorithm
     saved = {"passed":True, "protocol_sha256":metadata["protocol_sha256"], "development_seed":protocol["smoke"]["training_seed"],
              "development_evaluation_seeds":list(range(protocol["smoke"]["evaluation_seed_start"],
                  protocol["smoke"]["evaluation_seed_start"]+protocol["smoke"]["evaluation_episodes"])), "findings":findings,
@@ -236,10 +261,22 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
         raise ValueError("Training budget exceeded")
     if protocol["protocol_version"] in ("5e-v1","5f-v1") and training["environment_steps_this_run"]!=40000:
         raise RuntimeError("Incomplete fixed-step run preserved; do not evaluate or silently restart")
+    if protocol["protocol_version"]=="5h-v1" and training["environment_steps_this_run"]!=100000:
+        raise RuntimeError("Incomplete fixed-step algorithm run preserved; do not restart or evaluate")
+    clipped = 0
     with (training_dir/"updates.csv").open(newline="") as handle:
-        losses = [float(row["loss"]) for row in csv.DictReader(handle)]
+        losses = []
+        for row in csv.DictReader(handle):
+            losses.append(float(row["loss"]))
+            if protocol["protocol_version"]=="5h-v1":
+                norm = float(row["gradient_norm_before_clip"])
+                if not math.isfinite(norm):
+                    raise ValueError("Nonfinite training gradient norm")
+                clipped += norm > config.gradient_clip_norm
     if not losses or not all(torch.isfinite(torch.tensor(losses))):
         raise ValueError("Training loss is missing or nonfinite")
+    if protocol['protocol_version']=='5h-v1' and (len(losses)!=99001 or training['optimiser_updates_this_run']!=99001):
+        raise ValueError('Incomplete algorithm-comparison update log')
     checkpoint = training_dir/"checkpoints/final.pt"
     checkpoint_hash = digest(checkpoint)
     agent = DQNAgent.load(checkpoint)
@@ -251,23 +288,40 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
         if saved_eval["checkpoint_sha256"] != checkpoint_hash or saved_eval["csv_sha256"] != digest(case/"evaluation.csv"):
             raise ValueError("Existing evaluation metadata mismatch")
         metrics = saved_eval["metrics"]
+        if protocol["protocol_version"]=="5h-v1" and saved_eval["states_sha256"] != digest(case/"diagnostic_states.csv"):
+            raise ValueError("Recorded diagnostic states changed")
     else:
         if (case/"evaluation.csv").exists():
             raise FileExistsError("Incomplete evaluation output preserved; review rather than overwrite")
-        eval_rows, metrics = evaluation_rows(agent,model,seed)
+        captured,recorder = state_recorder(protocol,model,seed) if protocol["protocol_version"]=="5h-v1" else (None,None)
+        if captured is not None and (case/"diagnostic_states.csv").exists():
+            raise FileExistsError("Partial diagnostic capture preserved for review")
+        eval_rows, metrics = evaluation_rows(agent,model,seed,state_recorder=recorder)
         if len(eval_rows)!=100 or [r["evaluation_seed"] for r in eval_rows] != list(range(config.evaluation_seed_start,config.evaluation_seed_start+config.evaluation_episodes)):
             raise ValueError("Evaluation did not use all 100 reserved seeds")
         if digest(checkpoint) != checkpoint_hash:
             raise RuntimeError("Evaluation changed checkpoint bytes")
+        saved_eval = {"checkpoint_sha256":checkpoint_hash, "metrics":metrics}
+        if captured is not None:
+            if not captured:
+                raise ValueError("No diagnostic states were recorded")
+            for row in eval_rows:
+                row["algorithm"] = config.algorithm
+            write_csv(case/"diagnostic_states.csv",captured)
+            saved_eval["states_sha256"] = digest(case/"diagnostic_states.csv")
         write_csv(case/"evaluation.csv",eval_rows)
-        write_json(evaluation_file,{"checkpoint_sha256":checkpoint_hash,
-            "csv_sha256":digest(case/"evaluation.csv"), "metrics":metrics})
+        saved_eval["csv_sha256"] = digest(case/"evaluation.csv")
+        write_json(evaluation_file,saved_eval)
     result = {"model":model, "training_seed":seed, **metrics,
         "completed_training_episodes":training["completed_episodes_this_run"],
         "training_environment_steps":training["environment_steps_this_run"],
         "optimiser_updates":training["optimiser_updates_this_run"], "training_duration_seconds":training["duration_seconds"],
         "training_status":training["status"], "checkpoint_sha256":checkpoint_hash,
         "parameter_count":sum(p.numel() for p in agent.online.parameters())}
+    if protocol["protocol_version"]=="5h-v1":
+        result.update(algorithm=config.algorithm,mean_loss=statistics.mean(losses),maximum_loss=max(losses),
+            last10000_mean_loss=statistics.mean(losses[-10000:]),last10000_loss_sd=statistics.stdev(losses[-10000:]),
+            gradient_clipped_fraction=clipped/len(losses))
     artifacts = {str(path.relative_to(case)):digest(path) for path in sorted(case.rglob("*")) if path.is_file()}
     write_json(complete,{"protocol_sha256":metadata["protocol_sha256"], "result":result, "artifact_hashes":artifacts})
     print(json.dumps({key:result[key] for key in ("model","training_seed","average_score",
@@ -301,18 +355,22 @@ def create_charts(output: Path, results: list[dict], protocol: dict | None = Non
     seeds = protocol["training_seeds"] if protocol else [11,22,33]
     food = protocol is not None and protocol["protocol_version"]=="5e-v1"
     body = protocol is not None and protocol["protocol_version"]=="5f-v1"
+    algorithm = protocol is not None and protocol["protocol_version"]=="5h-v1"
     by_pair = {(row["model"],row["training_seed"]):row for row in results}
     colors = {"A":"#447da8","B":"#d48442"}
-    for filename,metric,title,ylabel in (("average_score","average_score","Greedy score on 100 fresh seeds","Mean food score"),
-        ("episode_length","average_episode_length","Greedy episode length on 100 fresh seeds","Mean moves")):
+    charts = [("average_score","average_score","Greedy score on 100 fresh seeds","Mean food score")]
+    if not algorithm:
+        charts.append(("episode_length","average_episode_length","Greedy episode length on 100 fresh seeds","Mean moves"))
+    for filename,metric,title,ylabel in charts:
         fig,ax = plt.subplots(figsize=(8,4.5),constrained_layout=True)
         for model,offset in (("A",-0.18),("B",0.18)):
             bars=ax.bar([index+offset for index in range(3)],[by_pair[model,seed][metric] for seed in seeds],
-                        width=.34,color=colors[model],label=f"{model}: {len(feature_names(protocol['variants'][model])) if protocol else (11 if model=='A' else 14)} features")
+                        width=.34,color=colors[model],label=(f"{model}: {protocol['algorithms'][model]}" if algorithm else
+                        f"{model}: {len(feature_names(protocol['variants'][model])) if protocol else (11 if model=='A' else 14)} features"))
             ax.bar_label(bars,fmt="%.2f",padding=3)
         ax.set(xticks=range(3),xticklabels=seeds,xlabel="Independent training seed",ylabel=ylabel,title=title)
         ax.margins(y=.2);ax.legend();fig.savefig(output/f"{filename}.png",dpi=150);plt.close(fig)
-    if body:
+    if body or algorithm:
         return
     fig,axes=plt.subplots(1,2,figsize=(12,4.5),constrained_layout=True)
     for axis,model in zip(axes,("A","B")):
@@ -546,6 +604,157 @@ def write_body_report(output: Path, results: list[dict], comparison: dict, proto
         handle.write('\n'.join(lines))
 
 
+def state_recorder(protocol: dict, model: str, seed: int):
+    """Record fixed nonterminal next states without extra episodes or RNG draws."""
+    rows = []
+    spec = protocol['diagnostic']
+    first_seed = protocol['evaluation_seed_start']
+
+    def capture(environment_seed, move, observation, terminated, truncated):
+        if (first_seed <= environment_seed < first_seed+spec['evaluation_episode_count']
+                and move in spec['move_steps'] and not terminated and not truncated):
+            rows.append({'origin_model':model,'training_seed':seed,'evaluation_seed':environment_seed,'move':move,
+                         **{f'feature_{i}':float(v) for i,v in enumerate(observation)}})
+    return rows,capture
+
+
+def q_disagreement(agent: DQNAgent, states: torch.Tensor):
+    """Signed online max minus target at online-selected action; not true bias."""
+    with torch.no_grad():
+        online = agent.online(states)
+        actions = online.argmax(dim=1)
+        online_max = online.max(dim=1).values
+        target_selected = agent.target(states).gather(1,actions.unsqueeze(1)).squeeze(1)
+        return online_max-target_selected,online_max,target_selected
+
+
+def run_q_diagnostic(output: Path, protocol: dict) -> dict:
+    torch.set_num_threads(1)
+    marker = output/'diagnostic_summary.json'
+    if marker.exists():
+        saved = json.loads(marker.read_text())
+        if any(digest(output/p)!=h for p,h in saved['artifact_hashes'].items()):
+            raise ValueError('Saved diagnostic artifacts changed')
+        if any(digest(output/p)!=h for p,h in saved['checkpoint_hashes'].items()):
+            raise ValueError('Diagnostic checkpoint hashes changed')
+        return saved
+    if (output/'diagnostic_states.csv').exists() or (output/'q_disagreement.csv').exists():
+        raise FileExistsError('Partial diagnostic preserved for review')
+    pooled = []
+    for model,seed in protocol['run_order']:
+        with (output/f'runs/{model}_seed{seed}/diagnostic_states.csv').open(newline='') as handle:
+            pooled.extend(csv.DictReader(handle))
+    if not pooled or len(pooled)>protocol['diagnostic']['maximum_pooled_states']:
+        raise ValueError('Invalid common diagnostic state pool')
+    states = torch.tensor([[float(row[f'feature_{i}']) for i in range(13)] for row in pooled],dtype=torch.float32)
+    if not torch.isfinite(states).all():
+        raise ValueError('Nonfinite diagnostic states')
+    summaries,details,checkpoints = [],[],{}
+    for model,seed in protocol['run_order']:
+        path = output/f'runs/{model}_seed{seed}/training/checkpoints/final.pt'
+        before = digest(path)
+        agent = DQNAgent.load(path)
+        gap,online,target = q_disagreement(agent,states)
+        if not all(torch.isfinite(x).all() for x in (gap,online,target)):
+            raise ValueError('Nonfinite diagnostic Q values')
+        values = gap.tolist()
+        summaries.append({'model':model,'training_seed':seed,'algorithm':agent.config.algorithm,
+            'states':len(pooled),'mean_gap':statistics.mean(values),'mean_abs_gap':statistics.mean(abs(v) for v in values),
+            'sd_gap':statistics.stdev(values),'online_mean_max':float(online.mean()),
+            'target_mean_selected':float(target.mean()),'positive_fraction':sum(v>0 for v in values)/len(values),
+            'target_update_lag':agent.optimiser_steps % agent.config.target_update_interval})
+        for index,(g,o,t) in enumerate(zip(values,online.tolist(),target.tolist())):
+            details.append({'model':model,'training_seed':seed,'state_index':index,
+                            'online_max':o,'target_at_online_action':t,'gap':g})
+        if digest(path) != before:
+            raise RuntimeError('Diagnostic modified a checkpoint')
+        checkpoints[str(path.relative_to(output))] = before
+    write_csv(output/'diagnostic_states.csv',pooled)
+    write_csv(output/'q_disagreement.csv',details)
+    saved = {'common_states':len(pooled),'per_run':summaries,
+        'checkpoint_hashes':checkpoints,'artifact_hashes':{name:digest(output/name) for name in
+            ('diagnostic_states.csv','q_disagreement.csv')},
+        'interpretation':'Same pooled next states from both algorithms and all three seeds. Signed estimator '
+            'disagreement, not actual overestimation: no ground-truth returns measured. Pool is policy-dependent '
+            'and nonuniform. Targets lag by one optimizer update at final checkpoints; small gaps can reflect '
+            'recent synchronization and do not prove calibrated Q values.'}
+    write_json(marker,saved)
+    return saved
+
+
+def write_algorithm_report(output: Path, results: list[dict], comparison: dict, diagnostic: dict, protocol: dict) -> None:
+    lines = ['# Milestone 5H: Standard DQN versus Double DQN','',
+        '## Frozen protocol','',
+        'Primary hypothesis: Double DQN improves mean greedy food score; benefit is not assumed. '
+        'A is Standard DQN; B is Double DQN. Both use unchanged food13, 13 -> 128 -> 128 -> 3, rewards, '
+        'game rules and episode limits. For each seed, initial online/target weights, replay/exploration seeds '
+        'and paired food-episode schedules match. Only next-state action selection in the learning target differs.','',
+        'Standard target: reward + gamma*(1-terminated)*max_a Q_target(next_state,a). '
+        'Double target: reward + gamma*(1-terminated)*Q_target(next_state,argmax_a Q_online(next_state,a)). '
+        'Targets are detached; genuine terminal transitions do not bootstrap; time-limit truncations retain '
+        'the existing bootstrap semantics. Standard DQN remains the default; old checkpoint configs load as dqn.','',
+        f"Seed amendment before training: {protocol['seed_audit_note']}", '',
+        'Six fresh CPU runs, 100,000 moves each, paired seeds 244/255/266. Food blocks start 110000/300000/400000 '
+        'and add episode index; ranges were audited before training. Final greedy evaluations use identical '
+        'fresh seeds 970000-970099. Smoke uses model seed 288, food 600000 onward and evaluation 980000-980004 '
+        'in temporary directories, separate from scientific findings.','',
+        'Adam 0.0005, gamma 0.99, replay 50000, batch 64, learning starts 1000, target every 1000 optimizer updates, '
+        'clip 10, epsilon 1 to 0.05 over 50000 moves. One CPU thread, deterministic algorithms where supported; '
+        'Python/torch seed=s, replay=s+1, exploration=s+2. Matched initializations do not make later experiences '
+        'identical. Exact cross-platform/software reproducibility is not guaranteed.','',
+        '## Actual budgets and evaluation','',
+        '| Model | Seed | Moves | Completed episodes | Updates | Seconds | Mean | Median | Min | Max | Mean episode moves | Collision | Truncation | Win |',
+        '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['training_environment_steps']} | "
+            f"{r['completed_training_episodes']} | {r['optimiser_updates']} | {r['training_duration_seconds']:.2f} | "
+            f"{r['average_score']:.2f} | {r['median_score']:.2f} | {r['minimum_score']} | {r['maximum_score']} | "
+            f"{r['average_episode_length']:.2f} | {r['collision_rate']:.1%} | {r['truncation_rate']:.1%} | {r['win_rate']:.1%} |")
+    lines += ['', '## Independent training-seed comparison','']
+    for model,v in comparison['variants'].items():
+        lines.append(f"- {model}: {v['mean_of_training_seed_means']:.2f} mean score; sample SD across seed means "
+                     f"{v['sd_across_training_seed_means']:.2f}.")
+    differences = comparison['paired_differences_B_minus_A']
+    lines += ['',f"Double-minus-Standard differences: {differences}. Mean paired difference "
+        f"{comparison['mean_paired_difference']:.2f}; Double higher on {sum(v>0 for v in differences.values())}/3 seeds.",'',
+        '## Descriptive training stability','',
+        '| Model | Seed | Mean loss | Max loss | Last 10k mean loss | Last 10k loss SD | Gradient clipping fraction |',
+        '|---|---:|---:|---:|---:|---:|---:|']
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['mean_loss']:.5f} | {r['maximum_loss']:.5f} | "
+            f"{r['last10000_mean_loss']:.5f} | {r['last10000_loss_sd']:.5f} | {r['gradient_clipped_fraction']:.1%} |")
+    lines += ['', 'Loss and clipping are descriptive: policies experience different data and target scales. '
+        'Lower loss alone does not establish better control or general training stability.','',
+        '## Q-estimator disagreement diagnostic','',
+        f"A common pool of {diagnostic['common_states']} nonterminal next states was recorded during the required "
+        'evaluations: first 20 episodes, moves 1/10/25/50, at most 80 per agent. The union from all six policies '
+        'is fed unchanged to every final estimator. No additional environment runs are used.','',
+        '| Model | Seed | Mean signed gap | Mean absolute gap | Gap SD | Target lag (updates) |',
+        '|---|---:|---:|---:|---:|---:|']
+    for r in diagnostic['per_run']:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['mean_gap']:.6f} | "
+                     f"{r['mean_abs_gap']:.6f} | {r['sd_gap']:.6f} | {r['target_update_lag']} |")
+    lines += ['',diagnostic['interpretation'],'',
+        'Three training seeds are preliminary evidence. The 300 evaluation episodes per algorithm are not 300 '
+        'independent training replications; no significance tests, hyperparameter search or best-checkpoint '
+        'selection are performed. Diagnostic states are correlated and policy-dependent, and no true '
+        'return-based Q calibration was measured. Further investigation needs separately predefined settings '
+        'and fresh evaluation seeds rather than tuning on these outcomes.','',
+        '## Artifacts and reproduction','',
+        'protocol.json/metadata.json freeze settings/source/software. runs/<model>_seed<seed>/ contains '
+        'training config/CSV/summary, ignored checkpoints, 100 raw evaluation outcomes, captured next states '
+        'and hashed completion records. Root per_seed_summary.csv and comparison_summary.json report outcomes. '
+        'diagnostic_states.csv, q_disagreement.csv and diagnostic_summary.json preserve the common pool, '
+        'per-state values and summary hashes. All older artifacts remain unchanged.','',
+        '`python -m snake_ai.experiments.feature_comparison --protocol configs/double_dqn_v1.json --smoke`; '
+        'remove --smoke for all six runs, or select --model/--seed for one missing run. Completed runs are '
+        'verified/reused without retraining; incomplete failures are preserved for review. --aggregate-only '
+        'reads completed files; use recorded source/software for historical reproduction.','',
+        '![Paired score comparison](average_score.png)','']
+    with (output/'report.md').open('x',encoding='utf-8') as handle:
+        handle.write('\n'.join(lines))
+
+
 def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
     output,metadata=prepare_output(output,protocol)
     if not all((output/"runs"/f"{model}_seed{seed}"/"complete.json").exists() for model,seed in protocol["run_order"]):
@@ -556,10 +765,15 @@ def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
     if (output/"comparison_summary.json").exists():
         if json.loads((output/"comparison_summary.json").read_text()) != comparison:
             raise ValueError("Stored aggregate differs")
+        if protocol['protocol_version']=='5h-v1':
+            run_q_diagnostic(output,protocol)
         return comparison
     write_csv(output/"per_seed_summary.csv",[{key:value for key,value in row.items() if key!='feature_order'} for row in results])
     create_charts(output,results,protocol)
-    if protocol["protocol_version"]=="5f-v1":
+    if protocol["protocol_version"]=="5h-v1":
+        diagnostic = run_q_diagnostic(output,protocol)
+        write_algorithm_report(output,results,comparison,diagnostic,protocol)
+    elif protocol["protocol_version"]=="5f-v1":
         write_body_report(output,results,comparison,protocol)
     elif protocol["protocol_version"]=="5e-v1":
         write_food_report(output,results,comparison)
@@ -581,7 +795,8 @@ def main() -> None:
     args=parser.parse_args()
     protocol=load_protocol(args.protocol)
     if args.output is None:
-        args.output=({"5f-v1":Path("results/milestone5f_body_awareness"),
+        args.output=({"5h-v1":Path("results/milestone5h_double_dqn"),
+                      "5f-v1":Path("results/milestone5f_body_awareness"),
                       "5e-v1":Path("results/milestone5e_food_distance")}.get(protocol["protocol_version"],DEFAULT_OUTPUT))
     if args.smoke:
         if args.model is not None or args.seed is not None or args.aggregate_only:
