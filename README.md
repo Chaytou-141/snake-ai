@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D feature comparison complete; 5E experiment below |
+| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D/5E/5F feature experiments complete |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -1282,3 +1282,107 @@ All **126 pre-existing result/checkpoint files** remain byte-for-byte identical
 to their pre-5E SHA-256 manifest. No successful training/evaluation runs were
 repeated, no historical results were regenerated, and the original seed-7 model
 was not retrained. 5E remains uncommitted; nothing was pushed.
+
+## Milestone 5F: controlled body-awareness experiment
+
+5E was subsequently verified, committed and pushed as
+`6266a86fc91f049f8710c9b22f1ac6d58a2b8c0e` before 5F. Its saved experiment
+results and all older checkpoints remain preserved. Historical reproduction
+should use the corresponding commit and recorded dependency versions, because
+the shared runner checks frozen source hashes before continuing an experiment.
+
+The primary hypothesis is that adding static body proximity to `food13`
+improves mean food score under matched training-step budgets. Model A is the
+unchanged **13 -> 128 -> 128 -> 3** food-distance DQN. Model B is
+**16 -> 128 -> 128 -> 3**, adding `body_distance_straight`,
+`body_distance_right`, and `body_distance_left` after the same first 13 features.
+All four encoders remain available; `original11` is still the default.
+
+Each ray counts free cells before the nearest other snake segment, divided by
+`max(board_width, board_height) - 1` (19 on our board). The head is excluded;
+the current tail is occupied. An adjacent body returns zero. If the ray reaches
+the boundary without a body hit, it returns **1.0**, a fixed maximum-range
+"no visible body" sentinel. Walls are not body hits: even beside a wall, a
+body-free ray returns one. The sentinel does not claim that 19 free cells
+physically exist along a short ray. Original danger features still detect walls.
+Observations remain float32; new values are finite and bounded by [0, 1].
+
+Protocol [5f-v1](configs/body_awareness_v1.json) was defined before training.
+The requested model seeds 77 and 88 had already been used for earlier smoke
+tests, so the user approved **111/122/133** instead. Both models start fresh
+for every seed, receive exactly **40,000 moves**, and retain all existing DQN
+hyperparameters, rewards and episode rules. Final checkpoints receive 100
+greedy evaluations on unused seeds **950000-950099**. Development validation
+uses model seed 155, food seeds 850000 onward and evaluation **960000-960004**
+in temporary directories. Both ranges were audited against earlier records.
+
+Paired food-episode schedules start at 700000, 750000, 800000 for the three
+training seeds, respectively. Each block allows 40,000 distinct possible
+episode seeds without overlapping the other blocks or earlier experiments.
+Model A/B share their paired schedule, while their different trajectories may
+consume randomness differently. CPU determinism, seed handling and software
+metadata follow the existing runner. Input size changes initialisation draws
+and B adds 384 parameters; identical model seeds do not give identical hidden
+weights. Matched update counts also do not imply identical wall-clock cost.
+
+```powershell
+python -m pytest tests/test_body_awareness.py tests/test_food_distance.py tests/test_feature_comparison.py -q
+python -m snake_ai.experiments.feature_comparison --protocol configs/body_awareness_v1.json --smoke
+python -m snake_ai.experiments.feature_comparison --protocol configs/body_awareness_v1.json
+# Continue one missing run without repeating completed work:
+python -m snake_ai.experiments.feature_comparison --protocol configs/body_awareness_v1.json --model B --seed 122
+```
+
+Outputs default to `results/milestone5f_body_awareness/`; completed outputs are
+hashed and preserved. Incomplete failures require review, source/software
+changes are rejected, and large model files remain excluded from Git. The
+comparison uses independent training-seed means, sample SD and paired B-minus-A
+differences; individual evaluation episodes are not independent training runs.
+Static body rays may help describe congestion but cannot predict when a tail
+will vacate a cell or establish long-term planning. Conclusions require the
+measured outcomes, and three training seeds provide preliminary evidence only.
+
+### Actual 5F findings
+
+All six runs completed exactly **40,000 moves** and **39,001 updates**, ending
+at epsilon **0.24**. Every final model received the same 100 greedy evaluations.
+
+| Model | Seed | Completed training episodes | Training seconds | Mean evaluation score |
+|---|---:|---:|---:|---:|
+| A: food13 | 111 | 608 | 86.39 | 30.91 |
+| B: body16 | 111 | 598 | 89.77 | 29.39 |
+| A | 122 | 612 | 90.24 | 31.50 |
+| B | 122 | 593 | 104.25 | 26.06 |
+| A | 133 | 594 | 86.51 | 27.08 |
+| B | 133 | 565 | 90.81 | 32.97 |
+
+A's mean across training seeds was **29.83 (sample SD 2.40)**; B's was
+**29.47 (sample SD 3.46)**. Paired B-minus-A differences were **-1.52, -5.44,
++5.89**, averaging **-0.36**. B improved on **one of three** seeds, with
+slightly lower overall score and greater between-seed variability. These
+outcomes do not support a consistent body-distance benefit in this protocol.
+They do not establish that body information is generally harmful or that the
+models are equivalent; three training seeds and one fixed budget are limited.
+
+Median scores and episode lengths followed the same paired direction: B was
+higher only for seed 133. A/seed 133 had one truncation; every other evaluation
+ended in collision. No model recorded a win. Mean survival across training
+seeds was 471.27 moves for A and 458.43 for B. Static proximity features did not
+demonstrate improved long-term planning.
+
+The [full report](results/milestone5f_body_awareness/report.md) includes per-run
+medians, ranges, score variability and termination rates, plus metadata and
+reproduction details. Charts:
+
+- [Mean score comparison](results/milestone5f_body_awareness/average_score.png).
+- [Episode-length comparison](results/milestone5f_body_awareness/episode_length.png).
+
+Validation: **23 new focused tests passed**, alongside relevant existing
+checks. Both smoke cycles passed with 225 finite updates each. The full suite
+ran once at completion: **295 passed, 0 failed**, one dependency deprecation
+warning. A separate read-only audit reproduced all metrics from 600 raw
+evaluation records, verified 74 run-artifact hashes, paired configurations,
+seed schedules and exact budgets, and confirmed all **213 historical files**
+byte-for-byte unchanged against the pre-5F manifest. No successful training
+or evaluation runs were repeated, and no earlier results were regenerated.
+5F remains uncommitted and nothing was pushed during this milestone.

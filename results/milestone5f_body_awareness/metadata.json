@@ -1,0 +1,27 @@
+{
+  "protocol_sha256": "66cdcea5798d4aed60a07fae80f4e7c7fdef4db532bde3610c7fd192c01a93d4",
+  "source_sha256": {
+    "snake_ai/game/engine.py": "2d286877f87464d353e51b6e9c72efd6026c630ec5d0ea89db077acce91027b4",
+    "snake_ai/game/geometry.py": "0b75cb67ac69fe9bdd16c9eae9f154fecbee1ba6404ce9b044e2af96e5c361dc",
+    "snake_ai/rl/environment.py": "115650ad60dadf66cc7d2d22742e542c03339f37c07abcde59c7640d7a1425a3",
+    "snake_ai/models/dqn.py": "62432056d8369d3e2e70c31348255602c8dadf1fa54bf60db08010138db87205",
+    "snake_ai/agents/dqn_agent.py": "bd96171a0ac954b7c2134373f2337bad223e93ea529913471e93045bb36c5deb",
+    "snake_ai/training/config.py": "6ae804184c974ff4259c9b0fea4d1905ca16e2e03f72fde3d12599ec50b1dba3",
+    "snake_ai/training/replay_buffer.py": "f76d18611eca58237704c252054d417a212a343082dd07fb1a1fe9617e2d5ff1",
+    "snake_ai/training/train.py": "1ddc89dbaf9e68cc88e0730eadc577bb6ba2ebd1a2545ffe7c421d64b516e75f",
+    "snake_ai/training/evaluate.py": "2c1bae83b161e07e9d29a817acdc42659a26750da04841af92eb7951d1833112",
+    "snake_ai/experiments/feature_comparison.py": "f38d659c902d48a4add74307c8706cfe343cc4667ce11a392e98538de9d7c42c"
+  },
+  "python": "3.12.1",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "device": "cpu",
+  "dependencies": {
+    "torch": "2.15.0+cpu",
+    "pygame": "2.6.1",
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4"
+  },
+  "deterministic_algorithms": true,
+  "cpu_threads": 1,
+  "seed_rule": "Python and torch: seed; replay: seed+1; exploration: seed+2; food: protocol training_seed_starts[seed]+episode_index; smoke food starts 850000"
+}

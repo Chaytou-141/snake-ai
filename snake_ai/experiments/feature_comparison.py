@@ -47,6 +47,23 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def load_protocol(path: Path = DEFAULT_PROTOCOL) -> dict:
     protocol = json.loads(Path(path).read_text(encoding="utf-8"))
+    if protocol.get("protocol_version") == "5f-v1":
+        expected = json.loads((Path(__file__).resolve().parents[2]/"configs/body_awareness_v1.json").read_text(encoding="utf-8"))
+        defaults = TrainingConfig().to_dict()
+        omitted = {"seed","training_seed_start","evaluation_seed_start","evaluation_episodes","random_policy_seed_start"}
+        base = {key:value for key,value in defaults.items() if key not in omitted}
+        base.update(episodes=40000,max_environment_steps=40000)
+        seeds = protocol["training_seeds"]
+        if (protocol != expected or protocol["base_training_config"] != base
+                or seeds != [111,122,133] or any(type(s) is not int for s in seeds)
+                or protocol["variants"] != {"A":"food13","B":"body16"}
+                or protocol["evaluation_seed_start"] != 950000 or protocol["evaluation_episodes"] != 100
+                or protocol["run_order"] != [[m,s] for s in seeds for m in ("A","B")]
+                or protocol["training_seed_starts"] != {str(s):700000+i*50000 for i,s in enumerate(seeds)}
+                or protocol["smoke"] != {"training_seed":155,"evaluation_seed_start":960000,
+                    "evaluation_episodes":5,"episodes":256,"max_environment_steps":256,"learning_starts":32,"batch_size":16}):
+            raise ValueError("Unexpected predeclared body-awareness protocol")
+        return protocol
     if protocol.get("protocol_version") == "5e-v1":
         expected = json.loads((Path(__file__).resolve().parents[2]/"configs/food_distance_v1.json").read_text(encoding="utf-8"))
         if protocol != expected:
@@ -88,7 +105,9 @@ def training_config(protocol: dict, model: str, seed: int, *, smoke: bool = Fals
     if not smoke and seed not in protocol["training_seeds"]:
         raise ValueError("Final training seed is not in the fixed protocol")
     config = TrainingConfig.from_dict({**protocol["base_training_config"], "seed":seed,
-        "training_seed_start":(300000 + seed*5000 if protocol["protocol_version"]=="5e-v1" else 200000 + seed*1000), "evaluation_seed_start":protocol["evaluation_seed_start"],
+        "training_seed_start":((850000 if smoke else protocol["training_seed_starts"][str(seed)])
+            if protocol["protocol_version"]=="5f-v1" else
+            (300000 + seed*5000 if protocol["protocol_version"]=="5e-v1" else 200000 + seed*1000)), "evaluation_seed_start":protocol["evaluation_seed_start"],
         "evaluation_episodes":protocol["evaluation_episodes"], "observation_mode":protocol["variants"][model]})
     if smoke:
         if seed != protocol["smoke"]["training_seed"]:
@@ -106,7 +125,8 @@ def prepare_output(output: Path, protocol: dict) -> tuple[Path, dict]:
         "dependencies":{name:version(name) for name in ("torch","pygame","matplotlib","numpy")},
         "deterministic_algorithms":True, "cpu_threads":1,
         "seed_rule":"Python and torch: seed; replay: seed+1; exploration: seed+2; food: " +
-            ("300000+5000*seed+episode_index" if protocol["protocol_version"]=="5e-v1" else "200000+1000*seed+episode_index")}
+            ("protocol training_seed_starts[seed]+episode_index; smoke food starts 850000" if protocol["protocol_version"]=="5f-v1" else
+             "300000+5000*seed+episode_index" if protocol["protocol_version"]=="5e-v1" else "200000+1000*seed+episode_index")}
     if output.exists():
         if not (output/"protocol.json").exists() or not (output/"metadata.json").exists():
             raise FileExistsError("Output is not a recognised experiment directory")
@@ -211,7 +231,7 @@ def run_one(protocol: dict, output: Path, model: str, seed: int) -> dict:
     if (training["environment_steps_this_run"]>config.max_environment_steps
             or training["completed_episodes_this_run"]>config.episodes):
         raise ValueError("Training budget exceeded")
-    if protocol["protocol_version"]=="5e-v1" and training["environment_steps_this_run"]!=40000:
+    if protocol["protocol_version"] in ("5e-v1","5f-v1") and training["environment_steps_this_run"]!=40000:
         raise RuntimeError("Incomplete fixed-step run preserved; do not evaluate or silently restart")
     with (training_dir/"updates.csv").open(newline="") as handle:
         losses = [float(row["loss"]) for row in csv.DictReader(handle)]
@@ -277,6 +297,7 @@ def create_charts(output: Path, results: list[dict], protocol: dict | None = Non
     import matplotlib.pyplot as plt
     seeds = protocol["training_seeds"] if protocol else [11,22,33]
     food = protocol is not None and protocol["protocol_version"]=="5e-v1"
+    body = protocol is not None and protocol["protocol_version"]=="5f-v1"
     by_pair = {(row["model"],row["training_seed"]):row for row in results}
     colors = {"A":"#447da8","B":"#d48442"}
     for filename,metric,title,ylabel in (("average_score","average_score","Greedy score on 100 fresh seeds","Mean food score"),
@@ -284,10 +305,12 @@ def create_charts(output: Path, results: list[dict], protocol: dict | None = Non
         fig,ax = plt.subplots(figsize=(8,4.5),constrained_layout=True)
         for model,offset in (("A",-0.18),("B",0.18)):
             bars=ax.bar([index+offset for index in range(3)],[by_pair[model,seed][metric] for seed in seeds],
-                        width=.34,color=colors[model],label=f"{model}: {11 if model=='A' else (13 if food else 14)} features")
+                        width=.34,color=colors[model],label=f"{model}: {len(feature_names(protocol['variants'][model])) if protocol else (11 if model=='A' else 14)} features")
             ax.bar_label(bars,fmt="%.2f",padding=3)
         ax.set(xticks=range(3),xticklabels=seeds,xlabel="Independent training seed",ylabel=ylabel,title=title)
         ax.margins(y=.2);ax.legend();fig.savefig(output/f"{filename}.png",dpi=150);plt.close(fig)
+    if body:
+        return
     fig,axes=plt.subplots(1,2,figsize=(12,4.5),constrained_layout=True)
     for axis,model in zip(axes,("A","B")):
         for seed in seeds:
@@ -449,6 +472,77 @@ def write_food_report(output: Path, results: list[dict], comparison: dict) -> No
         handle.write('\n'.join(lines))
 
 
+def write_body_report(output: Path, results: list[dict], comparison: dict, protocol: dict) -> None:
+    seeds = protocol['training_seeds']
+    lines = ["# Milestone 5F: controlled body-awareness experiment", "", "## Frozen hypothesis and protocol", "",
+        "Primary hypothesis: appending three static body-distance features to food13 improves mean food score "
+        "under matched training-step budgets. Secondary outcomes are median score, episode length, collision, "
+        "truncation and between-training-seed variability. Improvement was not assumed.", "",
+        f"A uses food13 (13 -> 128 -> 128 -> 3); B uses body16 (16 -> 128 -> 128 -> 3). "
+        f"Both are fresh models trained with seeds {seeds}, exactly 40,000 moves, 39,001 updates and epsilon 0.24. "
+        "All final checkpoints receive 100 greedy evaluations on seeds 950000-950099, without selection or tuning.", "",
+        "The first 13 features are unchanged. Body rays are straight/right/left relative to movement. "
+        "For a visible body hit, count free cells before that segment, excluding the head and including the tail, "
+        "then divide by max(width,height)-1 (19 on the 20x20 board). An adjacent body gives 0. "
+        "If no body is visible before the boundary, return 1: a fixed maximum-range sentinel, independent "
+        "of distance to the wall. Walls are not body segments. Original danger features still detect walls. "
+        "All values are float32 in [0,1]. The sentinel does not mean 19 free cells physically exist along a short ray. "
+        "These features measure current layout, not moving-body trajectories or guaranteed future safety.", "",
+        f"Seed audit/amendment before training: {protocol['seed_audit_note']}", "",
+        "Training food starts are frozen in training_seed_starts; episode_index is added within each pair. "
+        "Blocks 700000,750000,800000 each allow 40000 disjoint possible episode seeds. Smoke uses model seed 155, "
+        "food seeds 850000 onward and evaluation 960000-960004 in temporary directories. Smoke outcomes are "
+        "technical validation only. Final evaluation and smoke ranges were checked against earlier experiment records.", "",
+        "CPU, one thread, deterministic algorithms where supported; Python/torch use model seed, replay seed+1, "
+        "exploration seed+2. A/B share episode-food seeds but different trajectories consume randomness differently. "
+        "Input-size differences also change initialisation draws. B has 384 extra input parameters (19,075 vs 18,691). "
+        "Exact cross-version/platform determinism and equal wall-clock cost are not claimed.", "",
+        "Adam 0.0005, gamma 0.99, replay 50000, batch 64, warmup 1000, target every 1000 updates, clip 10, "
+        "epsilon 1 to 0.05 over 50000 moves. Rewards, game rules and episode limits are unchanged. "
+        "The existing trainer's 40000-episode safety ceiling cannot stop before 40000 moves, because every "
+        "episode requires at least one move. Final incomplete episodes are logged separately and excluded "
+        "from completed-episode statistics.", "", "## Measured budgets and evaluation", "",
+        "| Model | Seed | Moves | Completed episodes | Updates | Seconds | Mean score | Median | Min | Max |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['training_environment_steps']} | "
+            f"{r['completed_training_episodes']} | {r['optimiser_updates']} | {r['training_duration_seconds']:.2f} | "
+            f"{r['average_score']:.2f} | {r['median_score']:.2f} | {r['minimum_score']} | {r['maximum_score']} |")
+    lines += ["", "| Model | Seed | Mean episode moves | Score SD within eval | Collision | Truncation | Win |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+    for r in results:
+        lines.append(f"| {r['model']} | {r['training_seed']} | {r['average_episode_length']:.2f} | "
+            f"{r['score_sd_within_evaluation']:.2f} | {r['collision_rate']:.1%} | {r['truncation_rate']:.1%} | {r['win_rate']:.1%} |")
+    lines += ["", "## Training-seed-level comparison", ""]
+    for model,v in comparison['variants'].items():
+        lines.append(f"- {model}: {v['mean_of_training_seed_means']:.2f} mean score; "
+                     f"sample SD across three training-seed means {v['sd_across_training_seed_means']:.2f}.")
+    diffs = comparison['paired_differences_B_minus_A']
+    higher = sum(x>0 for x in diffs.values())
+    lines += ["", f"Paired B-minus-A differences: {diffs}. Mean paired difference: "
+        f"{comparison['mean_paired_difference']:.2f}. B was higher on {higher}/3 training seeds.", "",
+        "Three independent training seeds provide preliminary descriptive evidence only. The 100 evaluation "
+        "episodes per model are not 100 independent training replications. No significance tests, hyperparameter "
+        "search, best-checkpoint or best-seed selection were performed. Survival can be prolonged by "
+        "truncation without efficient food collection. Static body proximity does not establish long-term "
+        "planning capability; the tail moves and cells can become free. Further work needs a separately "
+        "predeclared hypothesis and fresh seeds, rather than tuning on these now-inspected outcomes.", "",
+        "## Artifacts and reproduction", "",
+        "protocol.json and metadata.json freeze settings, software versions and source hashes. Each "
+        "runs/<model>_seed<seed>/ directory contains training config/CSV/summary, ignored checkpoints, "
+        "100 raw evaluation outcomes and hashed completion records. Root per_seed_summary.csv and "
+        "comparison_summary.json contain aggregates. Previous artifacts are preserved without regeneration.", "",
+        "After focused tests, run `python -m snake_ai.experiments.feature_comparison "
+        "--protocol configs/body_awareness_v1.json --smoke`, then remove --smoke for final runs. "
+        "Select --model/--seed for one missing run. Completed runs are verified and reused, never retrained. "
+        "Incomplete failures are preserved for review; source/software changes are rejected. Use "
+        "--aggregate-only to read completed runs without training. For historical reproduction, use "
+        "the corresponding recorded source/software versions.", "",
+        "![Mean score comparison](average_score.png)", "![Episode length](episode_length.png)", ""]
+    with (output/'report.md').open('x',encoding='utf-8') as handle:
+        handle.write('\n'.join(lines))
+
+
 def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
     output,metadata=prepare_output(output,protocol)
     if not all((output/"runs"/f"{model}_seed{seed}"/"complete.json").exists() for model,seed in protocol["run_order"]):
@@ -462,7 +556,9 @@ def aggregate_experiment(protocol: dict, output: Path) -> dict | None:
         return comparison
     write_csv(output/"per_seed_summary.csv",[{key:value for key,value in row.items() if key!='feature_order'} for row in results])
     create_charts(output,results,protocol)
-    if protocol["protocol_version"]=="5e-v1":
+    if protocol["protocol_version"]=="5f-v1":
+        write_body_report(output,results,comparison,protocol)
+    elif protocol["protocol_version"]=="5e-v1":
         write_food_report(output,results,comparison)
     else:
         write_report(output,results,comparison)
@@ -482,7 +578,8 @@ def main() -> None:
     args=parser.parse_args()
     protocol=load_protocol(args.protocol)
     if args.output is None:
-        args.output=Path("results/milestone5e_food_distance") if protocol["protocol_version"]=="5e-v1" else DEFAULT_OUTPUT
+        args.output=({"5f-v1":Path("results/milestone5f_body_awareness"),
+                      "5e-v1":Path("results/milestone5e_food_distance")}.get(protocol["protocol_version"],DEFAULT_OUTPUT))
     if args.smoke:
         if args.model is not None or args.seed is not None or args.aggregate_only:
             parser.error("--smoke is separate from final model/seed selection")

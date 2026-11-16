@@ -1159,3 +1159,69 @@ passed before final training. Saved-data checks reproduced the metrics and
 confirmed all 126 historical files unchanged without rerunning experiments.
 The next experiment would need its own hypothesis, training seeds and fresh
 evaluation seeds. We stop here, preserving the mixed outcomes for review.
+
+## Milestone 5F: static body awareness
+
+Food distance describes the goal, but the snake must also navigate its own
+body. We test whether three body-only rays add useful information to food13.
+They point straight, right and left relative to movement, preserving every
+existing feature. Model A stays at 13 inputs; B has 16, with the same 128-unit
+hidden layers and DQN algorithm. No weights are reused for this comparison.
+
+If a body segment is three grid moves away, there are two free cells before
+it, so the value is 2/19 on our 20-by-20 board. An adjacent segment gives zero.
+The head is excluded and the tail counts as occupied. If no body is visible
+before the boundary, the value is one: a fixed maximum-range sentinel. This
+differs from distance14, whose rays also measure wall proximity. A value of
+one here means "no visible body", not a guaranteed 19-cell path. The original
+danger flags still describe immediate wall and body collisions.
+
+The moving tail complicates interpretation. A tail cell may become free on
+the next move even though static body distance is zero. Keeping the existing
+collision rules and documenting this distinction avoids turning a snapshot
+into an unsupported prediction of future safety. More precise proximity
+information might help or hurt learning; the experiment tests that hypothesis.
+
+Before training, the seed audit found that 77 and 88 had already been used for
+technical smoke validation. The user approved 111/122/133 for the experiment.
+Fresh evaluation 950000-950099 and smoke 960000-960004 were checked against
+previous records. Food-episode seed blocks are disjoint and paired within
+each A/B comparison. This change was documented before any final outcomes.
+
+Both agents receive 40,000 interactions, reaching the same update count and
+epsilon progress. Their completed episodes, replay experiences and durations
+can still differ. We compare all three paired training-seed means, never just
+the best checkpoint. Three seeds remain exploratory evidence; 100 evaluation
+episodes do not create 100 independent training runs. All historical artifacts
+are protected by a pre-development SHA-256 manifest.
+
+### What the measured 5F outcomes show
+
+The three paired score differences, body16 minus food13, were -1.52, -5.44 and
++5.89. A averaged 29.83 food items and B 29.47, a difference of -0.36. B improved
+only for seed 133. Its sample SD across training-seed means was 3.46, versus 2.40
+for A. Extra body information did not deliver a consistent observed benefit.
+The result is not proof that body features always hurt learning, nor evidence
+that the two representations are equivalent. Three independent training runs
+per model leave substantial uncertainty.
+
+Median scores and episode lengths also favoured B only on seed 133. All but
+one of the 600 evaluation episodes ended in collision; A/seed 133 had a single
+truncation. No model filled the board. We cannot claim that static body rays
+created better long-term planning, even though one body16 run scored well.
+Selecting that run would hide the other two paired outcomes.
+
+Every model received 40,000 moves and 39,001 updates, while completed training
+episodes ranged from 565 to 612. The final partially completed episode was
+logged separately. Equal moves controlled learning opportunities and epsilon
+progress, but experiences and durations still differed. The changed input
+size also changes parameter count and initialisation draws.
+
+Both development smoke cycles passed, and all 23 new focused tests passed
+after correcting one test's expected exception type. The runner had correctly
+rejected an older experiment directory throughout. The complete suite ran once
+at the end: 295 passed, no failures, one dependency deprecation warning. A
+read-only audit checked the raw records, budgets, hashes and aggregates, with
+all 213 pre-existing artifact files unchanged. No successful experiment was
+repeated. Future work would require a new predeclared question and fresh seeds;
+we stop here without tuning these outcomes or claiming a planning improvement.

@@ -1,0 +1,98 @@
+{
+  "protocol_version": "5f-v1",
+  "research_question": "Does adding static body-only distances to food13 improve mean greedy food score under matched 40000-step training?",
+  "hypothesis": "Model B body16 has higher mean evaluation food score than Model A food13; improvement is not assumed. Secondary outcomes: median, episode length, collision, truncation and variability across independent training seeds.",
+  "primary_outcome": "Mean food items per greedy evaluation episode; aggregate as the mean of three independent training-seed means.",
+  "training_seeds": [
+    111,
+    122,
+    133
+  ],
+  "variants": {
+    "A": "food13",
+    "B": "body16"
+  },
+  "run_order": [
+    [
+      "A",
+      111
+    ],
+    [
+      "B",
+      111
+    ],
+    [
+      "A",
+      122
+    ],
+    [
+      "B",
+      122
+    ],
+    [
+      "A",
+      133
+    ],
+    [
+      "B",
+      133
+    ]
+  ],
+  "evaluation_seed_start": 950000,
+  "evaluation_episodes": 100,
+  "training_seed_schedule": "training_seed_starts[str(model_seed)] + zero_based_episode_index; same within A/B pair; smoke starts850000",
+  "base_training_config": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "replay_capacity": 50000,
+    "batch_size": 64,
+    "learning_starts": 1000,
+    "target_update_interval": 1000,
+    "gradient_clip_norm": 10,
+    "hidden_size": 128,
+    "epsilon_start": 1,
+    "epsilon_min": 0.05,
+    "epsilon_decay_steps": 50000,
+    "episodes": 40000,
+    "max_environment_steps": 40000,
+    "checkpoint_interval_episodes": 100,
+    "cpu_threads": 1,
+    "environment": {
+      "width": 20,
+      "height": 20,
+      "max_steps": 10000,
+      "starvation_min_steps": 400,
+      "starvation_factor": 100
+    },
+    "rewards": {
+      "food": 10,
+      "collision": -10,
+      "movement": 0,
+      "win": 10
+    }
+  },
+  "analysis": {
+    "across_seed_sd": "sample standard deviation (n=3)",
+    "comparison": "B minus A paired by training seed",
+    "significance_testing": "none",
+    "checkpoint_selection": "final only; no seed or checkpoint selection"
+  },
+  "smoke": {
+    "training_seed": 155,
+    "evaluation_seed_start": 960000,
+    "evaluation_episodes": 5,
+    "episodes": 256,
+    "max_environment_steps": 256,
+    "learning_starts": 32,
+    "batch_size": 16
+  },
+  "food_distance_definition": "dx=(food_x-head_x)/(width-1); dy=(food_y-head_y)/(height-1); positive right/down; float32; current visible food only; no food => zero offsets.",
+  "budget_definition": "Exactly 40000 interactions; episodes=40000 is an unreachable earlier safety bound since every episode requires at least one interaction. Incomplete final episode logged separately; no episode count stopping before the move cap.",
+  "training_seed_starts": {
+    "111": 700000,
+    "122": 750000,
+    "133": 800000
+  },
+  "seed_audit_note": "Before training, existing results/configuration records showed model seeds77 and88 were used in 5D/5E smoke validation. User explicitly approved replacing requested77/88/99 with111/122/133. Model seeds111/122/133 and smoke155 are unused in prior experiments. Evaluation950000-950099 and smoke960000-960004 are unused; food blocks700000-739999,750000-789999,800000-839999 and smoke850000-850255 are disjoint from previous recorded/protocol smoke seeds.",
+  "body_distance_definition": "For straight/right/left rays, count consecutive free cells before first other snake segment; tail occupied, head excluded. Divide hit distance by max(width,height)-1 (19 on20x20). No body before boundary =>1.0 fixed maximum-range sentinel, regardless of wall proximity. Walls are not body. Float32[0,1]; static snapshot, not future safety."
+}

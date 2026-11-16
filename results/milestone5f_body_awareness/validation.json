@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "protocol_sha256": "66cdcea5798d4aed60a07fae80f4e7c7fdef4db532bde3610c7fd192c01a93d4",
+  "development_seed": 155,
+  "development_evaluation_seeds": [
+    960000,
+    960001,
+    960002,
+    960003,
+    960004
+  ],
+  "findings": {
+    "A": {
+      "input_dim": 13,
+      "updates": 225,
+      "weights_changed": true,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    },
+    "B": {
+      "input_dim": 16,
+      "updates": 225,
+      "weights_changed": true,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    }
+  },
+  "interpretation": "Technical validation only; not a scientific performance result"
+}
