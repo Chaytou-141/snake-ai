@@ -1,0 +1,42 @@
+{
+  "result": {
+    "training_seed": 188,
+    "checkpoint_steps": 100000,
+    "episodes": 100,
+    "average_score": 28.42,
+    "median_score": 29.0,
+    "minimum_score": 4,
+    "maximum_score": 65,
+    "average_episode_length": 422.54,
+    "collision_rate": 1.0,
+    "truncation_rate": 0.0,
+    "win_rate": 0.0,
+    "score_sd_within_evaluation": 10.77143622660592,
+    "weights_unchanged": true,
+    "observation_mode": "food13",
+    "input_dim": 13,
+    "feature_order": [
+      "danger_straight",
+      "danger_right",
+      "danger_left",
+      "moving_up",
+      "moving_down",
+      "moving_left",
+      "moving_right",
+      "food_left",
+      "food_right",
+      "food_above",
+      "food_below",
+      "food_dx",
+      "food_dy"
+    ],
+    "optimiser_updates": 99001,
+    "epsilon": 0.050000000000000044,
+    "completed_training_episodes": 880,
+    "training_duration_seconds": 222.86770010000328,
+    "replay_size": 50000,
+    "checkpoint_sha256": "e12c1a1cdc4a3d4d6bbb10760ee8f9fae6e7b8d49afbee8940fa301806f19e67"
+  },
+  "checkpoint_sha256": "e12c1a1cdc4a3d4d6bbb10760ee8f9fae6e7b8d49afbee8940fa301806f19e67",
+  "csv_sha256": "e477b42d40090b24cf3eda0b4c456f68fe765f6438f8b00089d9d87f728e59fa"
+}

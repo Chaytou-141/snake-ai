@@ -1225,3 +1225,64 @@ read-only audit checked the raw records, budgets, hashes and aggregates, with
 all 213 pre-existing artifact files unchanged. No successful experiment was
 repeated. Future work would require a new predeclared question and fresh seeds;
 we stop here without tuning these outcomes or claiming a planning improvement.
+
+## Milestone 5G: measuring additional training along the same trajectory
+
+The feature experiments did not establish a consistent benefit from extra
+geometry or body inputs. We now hold food13 and standard DQN fixed and ask
+whether more experience helps. Each of three fresh models trains once to
+100,000 moves, saving copies at 40k,60k,80k and 100k. This avoids repeating the
+first 40,000 moves and directly compares a policy with its later version.
+
+Saving a 40k snapshot must not create a 40k training boundary. An episode may
+be in progress; the environment, replay buffer, random generators, optimizer
+and target-update schedule continue normally. We tested this against training
+without snapshot saving and obtained identical training logs and final
+states. Evaluation happens only after a trajectory finishes, using loaded
+copies of the saved policies. Existing checkpoints are not exact resume
+files because active-game and replay state are absent; no resume is used.
+
+Epsilon reaches 0.05 at 50k, while the 40k snapshot still has training epsilon
+0.24. All evaluations are greedy. A later policy has both additional updates
+and experience collected at lower exploration, so we interpret this as the
+effect of additional training under a fixed schedule. We cannot attribute
+any gain exclusively to time spent or to exploration alone.
+
+The protocol fixes seeds 177/188/199, the 100k-versus-40k primary endpoint, fresh
+evaluation 1500000-1500099 and separate development validation. We report
+60k/80k outcomes even if they rise or fall, without retrospectively selecting
+the best point. A decline at 100k remains part of the result. The trajectory
+is the independent training unit; its snapshots are correlated repeated
+measurements, and 100 evaluation episodes do not become 100 independent
+training runs. Three trajectories provide preliminary evidence only.
+
+### What the measured 5G outcomes show
+
+The paired 40k-to-100k score changes were +0.58,-4.33,+4.34. The mean moved
+from 30.00 to 30.19, a small observed gain of 0.20 food items. Two trajectories
+improved, but the third declined. The sample SD of paired changes was 4.35,
+and only three independent trajectories were measured. These results do not
+demonstrate a reliable substantial benefit from this additional training.
+They also do not establish that the budgets are equivalent.
+
+Intermediate measurements made the instability visible. Seed 188 fell from
+32.75 at 40k to 23.70 at 60k, recovered to 30.20 at 80k and finished at 28.42.
+Seed 199 scored 32.18 at 60k, dropped to 25.54 at 80k, then reached 31.57 at 100k.
+Selecting each run's highest measurement would answer a different question
+and bias the reported result. We retain 100k as the primary endpoint and
+show all checkpoints, including declines.
+
+Training scores rose as epsilon fell, but greedy evaluation did not improve
+steadily. Training performance includes exploration and cannot substitute
+for held-out evaluation. All 1,200 evaluations ended in collision. Additional
+training under this schedule alone did not solve the survival failures.
+Understanding those failures is a reasonable next research question, with
+its own predefined protocol; no further algorithm changes are implemented.
+
+We trained only three trajectories, 300,000 moves in total, preserving their
+replay buffers and active episodes through every snapshot. The focused
+equivalence test checked that snapshot saving preserved training behaviour.
+The temporary smoke cycle and 93 focused tests passed, followed by a single
+full-suite run with 308 passing tests and one dependency deprecation warning.
+The saved-data audit verified all measurements and 301 historical files
+unchanged. 5F was committed and pushed first; 5G remains uncommitted for review.

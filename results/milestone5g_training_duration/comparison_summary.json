@@ -1,0 +1,33 @@
+{
+  "checkpoints": {
+    "40000": {
+      "mean_of_training_seed_means": 29.996666666666666,
+      "sd_across_training_seed_means": 2.760024154483676,
+      "independent_trajectories": 3
+    },
+    "60000": {
+      "mean_of_training_seed_means": 28.686666666666667,
+      "sd_across_training_seed_means": 4.432847091129282,
+      "independent_trajectories": 3
+    },
+    "80000": {
+      "mean_of_training_seed_means": 27.063333333333333,
+      "sd_across_training_seed_means": 2.7168057224125053,
+      "independent_trajectories": 3
+    },
+    "100000": {
+      "mean_of_training_seed_means": 30.193333333333335,
+      "sd_across_training_seed_means": 1.6120277086121475,
+      "independent_trajectories": 3
+    }
+  },
+  "primary_100k_minus_40k": {
+    "177": 0.5799999999999983,
+    "188": -4.329999999999998,
+    "199": 4.34
+  },
+  "mean_primary_difference": 0.19666666666666663,
+  "sd_primary_differences": 4.347692874770862,
+  "improved_trajectories": 2,
+  "interpretation": "Three independent training trajectories; correlated within-run snapshots. Primary comparison is100k minus40k. Intermediate results descriptive; no best-checkpoint selection."
+}

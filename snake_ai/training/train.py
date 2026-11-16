@@ -22,11 +22,16 @@ UPDATE_FIELDS = ["loss", "gradient_norm_before_clip", "environment_steps", "opti
 
 
 def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = None,
-                 make_charts: bool = True) -> dict:
+                 make_charts: bool = True, snapshot_steps: tuple[int, ...] = ()) -> dict:
     output = Path(output)
     # Every run owns a fresh directory; results and checkpoints are never replaced.
     if output.exists():
         raise FileExistsError(f"Choose a new run directory: {output}")
+    if (tuple(sorted(set(snapshot_steps))) != snapshot_steps
+            or any(type(step) is not int or not 1 <= step <= config.max_environment_steps for step in snapshot_steps)):
+        raise ValueError("snapshot_steps must be sorted unique positive steps within the run budget")
+    if snapshot_steps and resume is not None:
+        raise ValueError("Step snapshots require a fresh continuous training run")
     agent = DQNAgent.load(resume, resume_training=True) if resume is not None else DQNAgent(config)
     if agent.config != config:
         raise ValueError("Approximate resume requires the original checkpoint configuration")
@@ -47,6 +52,7 @@ def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = 
     episode_reward = 0.0
     episode_losses: list[float] = []
     current_seed = None
+    snapshots = {}
     info = {"score": 0}
     manifest = {"config": config.to_dict(), "python_version": platform.python_version(),
                 "torch_version": str(torch.__version__), "device": "cpu",
@@ -54,6 +60,8 @@ def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = 
                 "resume_mode": "approximate; replay and active game are not restored" if resume else "fresh",
                 "evaluation_seeds": list(range(config.evaluation_seed_start,
                     config.evaluation_seed_start + config.evaluation_episodes))}
+    if snapshot_steps:
+        manifest["snapshot_steps"] = list(snapshot_steps)
     (output / "config.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     with (output / "episodes.csv").open("x", newline="", encoding="utf-8") as episode_file, \
@@ -105,6 +113,18 @@ def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = 
                             agent.episodes_completed += 1
                         log_episode(info["end_reason"] if complete else "run_step_cap",
                                     terminated, truncated or (cap and not terminated), complete)
+                    if agent.environment_steps in snapshot_steps:
+                        path = output / "checkpoints" / f"step-{agent.environment_steps:06d}.pt"
+                        record = {"environment_steps":agent.environment_steps,
+                            "optimiser_updates":agent.optimiser_steps, "epsilon":agent.epsilon,
+                            "completed_episodes":agent.episodes_completed, "replay_size":len(agent.replay),
+                            "duration_seconds":time.perf_counter()-start, "episode_seed":current_seed,
+                            "episode_length":episode_length, "episode_complete":bool(terminated or truncated),
+                            "checkpoint":str(path)}
+                        agent.save(path, metadata={"training_seeds":training_seeds, "snapshot":record})
+                        snapshots[str(agent.environment_steps)] = record
+                        print(f"Saved step snapshot {agent.environment_steps}",flush=True)
+                    if terminated or truncated or cap:
                         episode_length = 0  # Prevent duplicate partial row if interrupted between episodes.
                         break
                 if len(rows) % config.checkpoint_interval_episodes == 0:
@@ -141,6 +161,8 @@ def run_training(config: TrainingConfig, output: Path, *, resume: Path | None = 
         "weights_changed": any(not torch.equal(old, parameter) for old, parameter in
                                zip(initial_weights, agent.online.parameters())),
         "training_seeds": training_seeds, "checkpoint": str(output / "checkpoints/final.pt")}
+    if snapshot_steps:
+        summary["snapshots"] = snapshots
     agent.save(output / "checkpoints/final.pt", metadata={"training_seeds": training_seeds,
                "training_summary": summary})
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

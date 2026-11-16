@@ -116,17 +116,20 @@ def training_config(protocol: dict, model: str, seed: int, *, smoke: bool = Fals
     return config
 
 
-def prepare_output(output: Path, protocol: dict) -> tuple[Path, dict]:
+def prepare_output(output: Path, protocol: dict, *, extra_source_files: tuple[str, ...] = (),
+                   seed_rule: str | None = None) -> tuple[Path, dict]:
     output = Path(output).resolve()
     repo = Path(__file__).resolve().parents[2]
     metadata = {"protocol_sha256": hashlib.sha256(json.dumps(protocol,sort_keys=True).encode()).hexdigest(),
-        "source_sha256": {name:digest(repo/name) for name in SOURCE_FILES},
+        "source_sha256": {name:digest(repo/name) for name in SOURCE_FILES + extra_source_files},
         "python":platform.python_version(), "platform":platform.platform(), "device":"cpu",
         "dependencies":{name:version(name) for name in ("torch","pygame","matplotlib","numpy")},
         "deterministic_algorithms":True, "cpu_threads":1,
         "seed_rule":"Python and torch: seed; replay: seed+1; exploration: seed+2; food: " +
             ("protocol training_seed_starts[seed]+episode_index; smoke food starts 850000" if protocol["protocol_version"]=="5f-v1" else
              "300000+5000*seed+episode_index" if protocol["protocol_version"]=="5e-v1" else "200000+1000*seed+episode_index")}
+    if seed_rule is not None:
+        metadata["seed_rule"] = seed_rule
     if output.exists():
         if not (output/"protocol.json").exists() or not (output/"metadata.json").exists():
             raise FileExistsError("Output is not a recognised experiment directory")

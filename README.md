@@ -28,7 +28,7 @@ training runs. Per-episode data and configurations are tracked under `results/`.
 | 2 | Headless RL environment, 11 features, relative actions, random baseline | Complete |
 | 3 | PyTorch network and educational inference/optimisation examples | Complete |
 | 4 | Replay, standard DQN training, checkpoints, and paired held-out evaluation | Complete: one bounded training seed |
-| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, and 5D/5E/5F feature experiments complete |
+| 5 | Agent inspection and further analysis | 5A playback, 5B/5C diagnostics, 5D/5E/5F features, and 5G duration experiment complete |
 | 6 | Portfolio presentation and project packaging | Planned; not implemented |
 
 The remaining roadmap is provisional. Further analysis, algorithm changes,
@@ -1386,3 +1386,107 @@ seed schedules and exact budgets, and confirmed all **213 historical files**
 byte-for-byte unchanged against the pre-5F manifest. No successful training
 or evaluation runs were repeated, and no earlier results were regenerated.
 5F remains uncommitted and nothing was pushed during this milestone.
+
+## Milestone 5G: training duration within one continuous run
+
+5F was subsequently verified, committed and pushed as
+`79540213e5a8500e83384fd256122fe57e4e46ac` before 5G development. Its saved
+results and all earlier models remain preserved.
+
+The hypothesis is that food13 benefits from additional training under the
+unchanged exploration schedule. The primary comparison is **100k minus 40k
+moves within each training trajectory**. Snapshots at **60k and 80k** describe
+the learning curve; they never replace the predefined 100k endpoint, even if
+one scores higher. This is a paired, within-run comparison across three
+independent trajectories, not six independent training runs.
+
+Protocol [5g-v1](configs/training_duration_v1.json) freezes fresh model seeds
+**177/188/199**, one uninterrupted **100,000-move** food13 run per seed, and
+100 greedy evaluations per snapshot using identical fresh seeds
+**1500000-1500099**. Food episode schedules start at 1100000, 1200000, 1300000
+respectively, with the zero-based episode index added. Development validation
+uses model seed 211, food 1410000 onward and evaluation 1600000-1600004, with
+temporary training files. All ranges were audited against earlier records
+before final training.
+
+Food13, **13 -> 128 -> 128 -> 3**, standard DQN, rewards, episode rules and
+hyperparameters remain unchanged. Epsilon is **0.24 at 40k** and reaches its
+minimum **0.05 at 50k**. It remains 0.05 at 60k/80k/100k. This experiment tests
+additional training under that schedule; it does not isolate duration from
+the accompanying change in exploration. Optimiser updates are 39001, 59001,
+79001,99001 at the four snapshots, respectively.
+
+Step snapshots are post-update copies. Saving does not terminate an episode,
+reset replay, draw exploration randomness or update the target network.
+The original agent continues in memory to 100k, and evaluation runs afterwards.
+Unit tests compare training with and without snapshots, including exact
+weights, optimizer state, replay contents/sampling RNG, exploration RNG, game
+state and CSV logs. Snapshot checkpoints are for evaluation; the existing
+format does not contain replay and active-game state for exact continuation.
+Partial failures are preserved for review rather than approximately resumed.
+
+```powershell
+python -m pytest tests/test_training_duration.py tests/test_training.py -q
+python -m snake_ai.experiments.training_duration --smoke
+python -m snake_ai.experiments.training_duration
+# Complete one missing trajectory without repeating successful runs:
+python -m snake_ai.experiments.training_duration --seed 188
+```
+
+Outputs default to `results/milestone5g_training_duration/`. Every trajectory
+has configuration, training metrics, step snapshots, raw outcomes for all
+four checkpoints and integrity hashes. Source/software/protocol checks freeze
+the experiment; all earlier artifacts remain untouched and large checkpoints
+remain excluded from Git. Three training-seed means and paired endpoint
+differences are the independent units for reporting. The four snapshots from
+a run and its 100 evaluation episodes are not independent training replications.
+No tuning, early stopping based on evaluation, or best-checkpoint selection is
+performed. 5G remains uncommitted for review.
+
+### Actual 5G findings
+
+Exactly three uninterrupted 100k runs completed, totalling **300,000 training
+moves**. Every final model reached **99,001 optimiser updates**. Completed
+training episodes were 880, 880, 915; measured durations were 221.77, 222.87, 221.31
+seconds for seeds 177/188/199. The first 40k moves were never repeated.
+
+| Training seed | 40k score | 60k score | 80k score | 100k score | Primary 100k-minus-40k |
+|---|---:|---:|---:|---:|---:|
+| 177 | 30.01 | 30.18 | 25.45 | 30.59 | +0.58 |
+| 188 | 32.75 | 23.70 | 30.20 | 28.42 | -4.33 |
+| 199 | 27.23 | 32.18 | 25.54 | 31.57 | +4.34 |
+| Mean across trajectories | 30.00 | 28.69 | 27.06 | 30.19 | +0.20 |
+
+Sample SDs across the three trajectory means were **2.76, 4.43, 2.72, 1.61** at
+40k/60k/80k/100k respectively. The primary paired difference averaged **+0.20**
+food items with sample SD **4.35**, improving on **two of three** trajectories.
+This is a small observed average gain with mixed directions, not evidence of
+a reliable or substantial improvement from extending this training budget.
+It also does not establish equivalence or rule out benefits under other
+settings. Three independent trajectories leave substantial uncertainty.
+
+Intermediate performance was non-monotonic. The 60k and 80k observations remain
+descriptive; none was selected retrospectively as the primary endpoint. Mean
+survival changed from 447.88 moves at 40k to 456.21 at 100k. All 1,200 evaluation
+episodes ended in collision, with no truncations or wins. The unchanged
+epsilon schedule couples additional updates with experience at lower
+exploration, so this is not a separate test of exploration schedules.
+
+The [full report](results/milestone5g_training_duration/report.md) records
+budgets, per-snapshot medians, score ranges, survival, termination rates and
+the distinction between within-run snapshots and independent trajectories.
+Charts:
+
+- [Evaluation by training step](results/milestone5g_training_duration/evaluation_by_step.png).
+- [Primary paired comparison](results/milestone5g_training_duration/primary_comparison.png).
+
+Validation: **93 focused tests passed**, including 13 new duration tests and
+direct trajectory-equivalence checks. The temporary smoke cycle completed
+512 moves, 481 finite updates, four snapshot loads and 20 greedy evaluation
+episodes without changing weights. The complete suite ran once at the end:
+**308 passed, 0 failed**, one dependency deprecation warning. An independent
+read-only audit verified all 1,200 evaluation rows, 76 run-artifact hashes,
+snapshot tensors/counters, seed schedules, budgets and aggregates. All
+**301 historical files** remain byte-for-byte unchanged, including every
+earlier model. No successful training or evaluation was repeated. 5G remains
+uncommitted; no additional push followed the authorised 5F checkpoint.

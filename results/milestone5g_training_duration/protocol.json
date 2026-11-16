@@ -1,0 +1,78 @@
+{
+  "protocol_version": "5g-v1",
+  "research_question": "Does food13 benefit from additional training along the same uninterrupted trajectory?",
+  "primary_hypothesis": "Mean greedy food score at100000 moves exceeds the paired40000-move snapshot across three independent training trajectories; improvement is not assumed.",
+  "primary_comparison": [
+    40000,
+    100000
+  ],
+  "snapshot_steps": [
+    40000,
+    60000,
+    80000,
+    100000
+  ],
+  "training_seeds": [
+    177,
+    188,
+    199
+  ],
+  "training_seed_starts": {
+    "177": 1100000,
+    "188": 1200000,
+    "199": 1300000
+  },
+  "observation_mode": "food13",
+  "evaluation_seed_start": 1500000,
+  "evaluation_episodes": 100,
+  "base_training_config": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "replay_capacity": 50000,
+    "batch_size": 64,
+    "learning_starts": 1000,
+    "target_update_interval": 1000,
+    "gradient_clip_norm": 10,
+    "hidden_size": 128,
+    "epsilon_start": 1,
+    "epsilon_min": 0.05,
+    "epsilon_decay_steps": 50000,
+    "episodes": 100000,
+    "max_environment_steps": 100000,
+    "checkpoint_interval_episodes": 100,
+    "cpu_threads": 1,
+    "environment": {
+      "width": 20,
+      "height": 20,
+      "max_steps": 10000,
+      "starvation_min_steps": 400,
+      "starvation_factor": 100
+    },
+    "rewards": {
+      "food": 10,
+      "collision": -10,
+      "movement": 0,
+      "win": 10
+    }
+  },
+  "smoke": {
+    "training_seed": 211,
+    "training_seed_start": 1410000,
+    "evaluation_seed_start": 1600000,
+    "evaluation_episodes": 5,
+    "snapshot_steps": [
+      128,
+      256,
+      384,
+      512
+    ],
+    "max_environment_steps": 512,
+    "learning_starts": 32,
+    "batch_size": 16
+  },
+  "analysis": "Three independent100k training trajectories.40k/60k/80k/100k snapshots within each trajectory are correlated repeated measurements; evaluation episodes are paired conditions, not independent training replications. Primary result100k minus40k; intermediate results descriptive, never used to choose the best checkpoint. Sample SD across training-seed means; no significance tests.",
+  "snapshot_definition": "Post-optimizer-update copies. Saving never truncates/resets an episode or changes replay, exploration, RNG, optimizer or target schedule. Train uninterrupted to100000 before evaluating snapshots.40000 snapshot is not an independent40000-budget run and creates no artificial boundary there.",
+  "seed_rule": "Python/torch=model seed; replay=seed+1; exploration=seed+2; food=training_seed_starts[str(seed)]+episode_index; smoke food starts1410000.",
+  "seed_audit": "Model seeds177/188/199 and smoke211; food blocks1100000-1199999,1200000-1299999,1300000-1399999; smoke1410000-1410511; final evaluation1500000-1500099; smoke evaluation1600000-1600004. Check against earlier experiment records before freezing.",
+  "git": "5F verified, committed and pushed before development. Leave5G uncommitted for review; no further push during5G."
+}

@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "protocol_sha256": "5173078b5db6841a1a2f1d3a5c29b37abb1cdf5cabc5e0373e156d88b9ecbdaf",
+  "development_seed": 211,
+  "development_evaluation_seeds": [
+    1600000,
+    1600001,
+    1600002,
+    1600003,
+    1600004
+  ],
+  "snapshots": [
+    {
+      "steps": 128,
+      "updates": 97,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    },
+    {
+      "steps": 256,
+      "updates": 225,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    },
+    {
+      "steps": 384,
+      "updates": 353,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    },
+    {
+      "steps": 512,
+      "updates": 481,
+      "checkpoint_loaded": true,
+      "evaluation_episodes": 5,
+      "evaluation_weights_unchanged": true
+    }
+  ],
+  "interpretation": "Technical validation only; temporary training files cleaned; not scientific findings"
+}
